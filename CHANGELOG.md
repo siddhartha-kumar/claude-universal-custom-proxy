@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CodeQL configuration and `CODEOWNERS`.
 - Additional coverage tests for middleware, provider retries, and the model
   registry merge behavior.
+- Cross-platform tooling: PowerShell example clients, NSSM-based Windows
+  service installer, macOS launchd plist, `.gitattributes` for consistent
+  line endings.
+- `docs/platforms.md` with per-OS install, run, env-var, and service
+  registration recipes.
+- **`SETUP.md`** — a beginner-friendly, step-by-step setup guide covering
+  prerequisites, install, configuration, verification, Claude Code wiring,
+  and troubleshooting for Windows, macOS, Linux, and Docker.
 
 ### Changed
 - Renamed the project, repository, distribution package, and Docker image to

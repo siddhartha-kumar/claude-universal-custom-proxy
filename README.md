@@ -16,6 +16,8 @@ Drop-in compatibility with Claude Code, the OpenAI SDK, and any client that spea
 [![Coverage](https://img.shields.io/badge/coverage-89%25-brightgreen.svg)](#quality)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Docker-lightgrey.svg)](#platform-support)
 
+### New here? Read the **[Setup Guide (SETUP.md)](SETUP.md)** for a beginner-friendly, OS-by-OS walkthrough.
+
 </div>
 
 ---
@@ -154,6 +156,11 @@ See [`docs/platforms.md`](docs/platforms.md) for end-to-end per-OS install, run,
 ---
 
 ## Quick start
+
+> **First-time user?** Follow the friendly, step-by-step
+> **[Setup Guide (SETUP.md)](SETUP.md)** — it covers prerequisites, install,
+> configuration, verification, and Claude Code wiring per OS with no prior
+> experience assumed.
 
 Pick your platform and you should be able to start the gateway, set a gateway key, and verify a model list in under five minutes.
 
@@ -472,6 +479,7 @@ Pre-commit hooks are configured in `.pre-commit-config.yaml` (`pre-commit instal
 
 | Topic | Path |
 | --- | --- |
+| **First-time setup walkthrough** | [**`SETUP.md`**](SETUP.md) |
 | Architecture | [`docs/architecture.md`](docs/architecture.md) |
 | Platform setup | [`docs/platforms.md`](docs/platforms.md) |
 | Providers | [`docs/providers.md`](docs/providers.md) |
