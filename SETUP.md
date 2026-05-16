@@ -16,8 +16,9 @@ By the end you will have:
 | 4 | Configure secrets in `.env` | 2 min |
 | 5 | Start the gateway | 1 min |
 | 6 | Verify it works | 1 min |
-| 7 | Point Claude Code at it | 2 min |
+| 7 | Point Claude Code at it (with model picker and verification) | 3 min |
 | 8 | (Optional) Add provider API keys | 5 min |
+| 9 | (Optional) Keep the gateway running long-term as a service | 5 min |
 
 ---
 
@@ -57,7 +58,13 @@ flowchart LR
 - [Step 5. Start the Gateway](#step-5-start-the-gateway)
 - [Step 6. Verify It Works](#step-6-verify-it-works)
 - [Step 7. Point Claude Code at the Gateway](#step-7-point-claude-code-at-the-gateway)
+  - [7-A. Confirm what is actually reachable](#7-a-confirm-what-is-actually-reachable)
+  - [7-B. Set the three environment variables](#7-b-set-the-three-environment-variables-claude-code-reads)
+  - [7-C. Restart Claude Code](#7-c-restart-claude-code)
+  - [7-D. Pick a model that matches your keys](#7-d-pick-a-model-that-matches-your-configured-keys)
+  - [7-E. Verify the wire end-to-end](#7-e-verify-the-wire-end-to-end)
 - [Step 8. (Optional) Add Provider API Keys](#step-8-optional-add-provider-api-keys)
+- [Step 9. Keep the Gateway Running Long-Term](#step-9-keep-the-gateway-running-long-term)
 - [Troubleshooting](#troubleshooting)
 - [Glossary](#glossary)
 
@@ -447,51 +454,160 @@ If you get a JSON list of model names back, you are done with the install.
 
 ## Step 7. Point Claude Code at the Gateway
 
-Now make Claude Code (or any OpenAI-compatible client) use your gateway.
+This is the section that ties everything together. By the end, Claude Code
+(or any OpenAI-compatible client) will be sending all of its traffic through
+the gateway you just started.
 
-### Windows (persistent — survives reboots)
+### 7-A. Confirm what is actually reachable
+
+Before you tell Claude Code which model to use, look at which upstream
+providers responded successfully when the gateway started. The `/ready`
+endpoint reports per-provider status.
+
+**Windows PowerShell:**
 
 ```powershell
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_BASE_URL", "http://127.0.0.1:8080/v1", "User")
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_API_KEY",  "my-super-secret-proxy-key-9f8a2c", "User")
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_MODEL",    "ollama-local/llama3.2", "User")
+Invoke-RestMethod -Uri http://127.0.0.1:8080/ready |
+    Select-Object -ExpandProperty providers |
+    Format-Table name, configured, available, detail
 ```
 
-Close **all** open Claude Code windows and start Claude Code again so it
-picks up the new environment.
+**macOS / Linux:**
 
-### macOS / Linux (persistent)
+```bash
+curl -s http://127.0.0.1:8080/ready | python3 -m json.tool
+```
 
-Open your shell config file (`~/.zshrc` on macOS, `~/.bashrc` on Linux) and
-append:
+Read the result like this:
+
+| `configured` | `available` | What it means |
+| :---: | :---: | --- |
+| `false` | `false` | No API key supplied for this provider. Add one in `.env` if you want to use it. |
+| `true` | `true` | Key works, the upstream answered. You can route to this provider. |
+| `true` | `false` | Key supplied but the upstream rejected it (`Authentication Failed`) or did not answer (`TimeoutError`). |
+
+You only need **one** provider to be `available` to start using the gateway.
+
+### 7-B. Set the three environment variables Claude Code reads
+
+Claude Code's OpenAI-compatible mode reads three values:
+
+| Variable | What it is |
+| --- | --- |
+| `OPENAI_COMPATIBLE_BASE_URL` | The `/v1` URL of your gateway. |
+| `OPENAI_COMPATIBLE_API_KEY` | The value of `GATEWAY_API_KEYS` from your `.env`. |
+| `OPENAI_COMPATIBLE_MODEL` | A routed model name from Step 7-D. |
+
+Pick the matching block for your OS. Replace `my-super-secret-proxy-key-9f8a2c`
+with whatever you put in `GATEWAY_API_KEYS` in [Step 4](#step-4-configure-your-env-file).
+
+**Windows (persistent — survives reboots):**
+
+```powershell
+[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_BASE_URL", "http://127.0.0.1:8080/v1",         "User")
+[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_API_KEY",  "my-super-secret-proxy-key-9f8a2c", "User")
+[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_MODEL",    "ollama-cloud/deepseek-v3.2",       "User")
+```
+
+**Windows (current session only):**
+
+```powershell
+$env:OPENAI_COMPATIBLE_BASE_URL = "http://127.0.0.1:8080/v1"
+$env:OPENAI_COMPATIBLE_API_KEY  = "my-super-secret-proxy-key-9f8a2c"
+$env:OPENAI_COMPATIBLE_MODEL    = "ollama-cloud/deepseek-v3.2"
+```
+
+**macOS / Linux (persistent — append to `~/.zshrc` on macOS or `~/.bashrc` on Linux):**
 
 ```bash
 export OPENAI_COMPATIBLE_BASE_URL=http://127.0.0.1:8080/v1
 export OPENAI_COMPATIBLE_API_KEY=my-super-secret-proxy-key-9f8a2c
-export OPENAI_COMPATIBLE_MODEL=ollama-local/llama3.2
+export OPENAI_COMPATIBLE_MODEL=ollama-cloud/deepseek-v3.2
 ```
 
-Save, then in any terminal:
+Reload the shell:
 
 ```bash
 exec $SHELL
 ```
 
-Quit and relaunch Claude Code.
+### 7-C. Restart Claude Code
 
-### Model choices
+> **Important:** Claude Code reads environment variables once at startup.
+> After setting them, **fully quit and reopen Claude Code** so the new
+> values take effect. On Windows, close every Claude Code window. On macOS,
+> use **Command + Q** rather than the red close button. On Linux, exit the
+> tray icon if present.
 
-| Use case | Set `OPENAI_COMPATIBLE_MODEL` to |
-| --- | --- |
-| Free, fully offline (needs Ollama) | `ollama-local/llama3.2` |
-| OpenAI hosted | `gpt-4.1-mini` |
-| DeepSeek reasoning | `deepseek-reasoner` |
-| Perplexity search | `sonar-pro` |
-| Z.AI | `glm-4.6` |
-| Hugging Face router | `hf/meta-llama/Llama-3.1-8B-Instruct` |
+### 7-D. Pick a model that matches your configured keys
 
-For anything other than `ollama-local/*`, you also need an upstream API key —
-see [Step 8](#step-8-optional-add-provider-api-keys).
+Set `OPENAI_COMPATIBLE_MODEL` to one of these. The middle column shows
+which `.env` variable that route needs to be populated.
+
+| Use case | Required key in `.env` | Suggested `OPENAI_COMPATIBLE_MODEL` |
+| --- | --- | --- |
+| Strong coding via Ollama Cloud | `OLLAMA_CLOUD_API_KEY` | `ollama-cloud/deepseek-v3.2` |
+| Fast, cheap chat via Ollama Cloud | `OLLAMA_CLOUD_API_KEY` | `ollama-cloud/gemma3:4b` |
+| Heavy reasoning, very large | `OLLAMA_CLOUD_API_KEY` | `ollama-cloud/deepseek-v3.1:671b` |
+| Vision / multimodal preview | `OLLAMA_CLOUD_API_KEY` | `ollama-cloud/gemini-3-flash-preview` |
+| Open-source via Hugging Face | `HF_TOKEN` | `hf/meta-llama/Llama-3.1-8B-Instruct` |
+| Open-source coding model via HF | `HF_TOKEN` | `hf/Qwen/Qwen2.5-Coder-32B-Instruct` |
+| OpenAI hosted | `OPENAI_API_KEY` | `gpt-4.1-mini` |
+| DeepSeek reasoning | `DEEPSEEK_API_KEY` | `deepseek-reasoner` |
+| Perplexity search-grounded | `PERPLEXITY_API_KEY` | `sonar-pro` |
+| Z.AI multilingual | `ZAI_API_KEY` | `glm-4.6` |
+| Local Ollama (fully offline) | none — needs Ollama installed | `ollama-local/llama3.2` |
+
+Discover every model the gateway currently exposes:
+
+**Windows PowerShell:**
+
+```powershell
+.\examples\powershell\models.ps1
+```
+
+**macOS / Linux:**
+
+```bash
+./examples/curl/models.sh
+```
+
+### 7-E. Verify the wire end-to-end
+
+In a **new** terminal (so the environment variables you just set are
+visible), run the matching example. If it answers with a JSON reply
+containing `choices[0].message.content`, Claude Code will work the same
+way.
+
+**Windows PowerShell:**
+
+```powershell
+.\examples\powershell\chat.ps1
+```
+
+**macOS / Linux:**
+
+```bash
+./examples/curl/chat.sh
+```
+
+**Success looks like:**
+
+```json
+{
+  "id": "chatcmpl-...",
+  "object": "chat.completion",
+  "model": "ollama-cloud/deepseek-v3.2",
+  "choices": [
+    { "message": { "role": "assistant", "content": "Hello..." }, "finish_reason": "stop" }
+  ]
+}
+```
+
+If you reach this point, **open Claude Code and start chatting** — every
+request goes through your gateway, your keys never leave your machine, and
+you can swap models on the fly by editing
+`OPENAI_COMPATIBLE_MODEL` and relaunching Claude Code.
 
 ---
 
@@ -539,6 +655,93 @@ ollama pull llama3.2
 
 Ollama runs on port 11434 by default; the gateway is preconfigured for that
 URL.
+
+---
+
+## Step 9. Keep the Gateway Running Long-Term
+
+The `uvicorn` command in [Step 5](#step-5-start-the-gateway) only runs while
+the terminal window is open. For a hands-off setup that auto-starts at boot
+and restarts itself if it crashes, register the gateway as a system service.
+Pick the section for your OS.
+
+### Windows — install as a Windows service (NSSM)
+
+1. Install [NSSM](https://nssm.cc/download) and put `nssm.exe` on PATH (or
+   pass `-NssmPath` to the installer below).
+2. Open an **elevated** PowerShell (Run as administrator).
+3. From the project directory:
+
+   ```powershell
+   cd D:\path\to\claude-universal-custom-proxy
+   .\deployment\windows\install-service.ps1
+   ```
+
+4. The service starts automatically. Manage it like any Windows service:
+
+   ```powershell
+   Start-Service   ClaudeUniversalCustomProxy
+   Stop-Service    ClaudeUniversalCustomProxy
+   Restart-Service ClaudeUniversalCustomProxy
+   Get-Service     ClaudeUniversalCustomProxy
+   ```
+
+5. Logs land in `<project>\logs\stdout.log` and `<project>\logs\stderr.log`
+   with rotation at 10 MiB.
+
+Detailed options and uninstall steps:
+[`deployment/windows/README.md`](deployment/windows/README.md).
+
+### macOS — install as a launchd agent or daemon
+
+For a per-user agent that starts when you log in:
+
+```bash
+mkdir -p ~/Library/LaunchAgents
+cp deployment/launchd/com.siddhartha-kumar.claude-universal-custom-proxy.plist \
+   ~/Library/LaunchAgents/
+
+launchctl load ~/Library/LaunchAgents/com.siddhartha-kumar.claude-universal-custom-proxy.plist
+launchctl start com.siddhartha-kumar.claude-universal-custom-proxy
+```
+
+System-wide install and full reference:
+[`deployment/launchd/README.md`](deployment/launchd/README.md).
+
+### Linux — install as a systemd unit
+
+```bash
+sudo cp deployment/systemd/llm-gateway.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now llm-gateway
+sudo systemctl status llm-gateway
+```
+
+Tail the logs with `journalctl -u llm-gateway -f`. Adjust paths inside the
+unit file to match where you cloned the project.
+
+### Docker — keep the container alive
+
+If you launched the gateway with Docker in
+[Step 3D](#step-3d-docker-only), it already restarts itself
+(`restart: unless-stopped`). To run it detached:
+
+```bash
+docker compose -f deployment/docker-compose.yml up -d --build
+```
+
+Tail logs with `docker compose -f deployment/docker-compose.yml logs -f`.
+
+### Verifying the service is alive
+
+Whichever option you chose, the same verification works everywhere:
+
+```bash
+curl http://127.0.0.1:8080/health
+```
+
+A `{"status":"ok",...}` response means the service is up and ready to
+receive Claude Code traffic.
 
 ---
 
