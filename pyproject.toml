@@ -1,0 +1,125 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openai-compatible-llm-gateway"
+version = "0.1.0"
+description = "OpenAI-compatible multi-provider LLM proxy gateway for ASGI deployments."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Siddhartha Kumar" }]
+maintainers = [{ name = "Siddhartha Kumar" }]
+keywords = ["openai", "llm", "gateway", "proxy", "fastapi", "ollama"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Framework :: FastAPI",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Internet :: Proxy Servers",
+  "Typing :: Typed",
+]
+dependencies = [
+  "fastapi>=0.124.0",
+  "httpx>=0.28.0",
+  "pydantic>=2.12.0",
+  "pydantic-settings>=2.12.0",
+  "PyYAML>=6.0.2",
+  "uvicorn[standard]>=0.38.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "bandit>=1.9.0",
+  "black>=25.11.0",
+  "httpx>=0.28.0",
+  "isort>=7.0.0",
+  "mypy>=1.19.0",
+  "pip-audit>=2.9.0",
+  "pre-commit>=4.4.0",
+  "pytest>=9.0.0",
+  "pytest-asyncio>=1.3.0",
+  "pytest-cov>=7.0.0",
+  "ruff>=0.14.8",
+  "types-PyYAML>=6.0.12",
+]
+
+[project.urls]
+Documentation = "https://github.com/siddhartha-kumar/openai-compatible-llm-gateway"
+Repository = "https://github.com/siddhartha-kumar/openai-compatible-llm-gateway"
+Issues = "https://github.com/siddhartha-kumar/openai-compatible-llm-gateway/issues"
+
+[project.scripts]
+llm-gateway = "llm_proxy_gateway.main:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llm_proxy_gateway"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+src_paths = ["src", "tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "A",
+  "ASYNC",
+  "B",
+  "C4",
+  "E",
+  "F",
+  "I",
+  "N",
+  "S",
+  "SIM",
+  "UP",
+  "W",
+]
+ignore = [
+  "S101",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+no_implicit_reexport = true
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["yaml"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config --cov=llm_proxy_gateway --cov-report=term-missing"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["llm_proxy_gateway"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 85

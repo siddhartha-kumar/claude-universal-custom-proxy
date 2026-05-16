@@ -1,0 +1,138 @@
+app_name: OpenAI Compatible LLM Gateway
+environment: development
+host: 0.0.0.0
+port: 8080
+log_level: INFO
+log_format: json
+auth_enabled: true
+gateway_api_keys: []
+request_timeout_seconds: 60.0
+max_request_bytes: 1048576
+rate_limit_enabled: true
+rate_limit_requests: 120
+rate_limit_window_seconds: 60
+provider_readiness_timeout_seconds: 2.0
+providers:
+  openai:
+    name: openai
+    type: openai_compatible
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    enabled: true
+    supports_chat: true
+    supports_streaming: true
+    supports_images: true
+    supports_models: true
+    model_prefixes: ["gpt-", "o3-"]
+    static_models: ["gpt-4.1", "gpt-4.1-mini", "o3-mini"]
+  deepseek:
+    name: deepseek
+    type: openai_compatible
+    base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    enabled: true
+    supports_chat: true
+    supports_streaming: true
+    supports_images: false
+    supports_models: true
+    model_prefixes: ["deepseek-"]
+    static_models: ["deepseek-chat", "deepseek-reasoner"]
+  perplexity:
+    name: perplexity
+    type: openai_compatible
+    base_url: https://api.perplexity.ai/v1
+    api_key_env: PERPLEXITY_API_KEY
+    enabled: true
+    supports_chat: true
+    supports_streaming: true
+    supports_images: false
+    supports_models: false
+    model_prefixes: ["sonar-"]
+    static_models: ["sonar", "sonar-pro", "sonar-reasoning"]
+  kimi:
+    name: kimi
+    type: openai_compatible
+    base_url: https://api.moonshot.ai/v1
+    api_key_env: KIMI_API_KEY
+    enabled: true
+    supports_chat: true
+    supports_streaming: true
+    supports_images: false
+    supports_models: true
+    model_prefixes: ["kimi-"]
+    static_models: ["kimi-k2-0711-preview", "kimi-latest"]
+  zai:
+    name: zai
+    type: openai_compatible
+    base_url: https://api.z.ai/api/paas/v4
+    api_key_env: ZAI_API_KEY
+    enabled: true
+    supports_chat: true
+    supports_streaming: true
+    supports_images: true
+    supports_models: true
+    model_prefixes: ["glm-"]
+    static_models: ["glm-4.6", "glm-4.5", "cogview-4"]
+  huggingface:
+    name: huggingface
+    type: openai_compatible
+    base_url: https://router.huggingface.co/v1
+    api_key_env: HF_TOKEN
+    enabled: true
+    supports_chat: true
+    supports_streaming: true
+    supports_images: false
+    supports_models: true
+    model_prefixes: ["hf/"]
+    model_id_prefix: "hf/"
+    strip_model_prefix: true
+    static_models: []
+  ollama-local:
+    name: ollama-local
+    type: ollama
+    base_url: http://localhost:11434
+    api_key_env: null
+    enabled: true
+    supports_chat: true
+    supports_streaming: true
+    supports_images: false
+    supports_models: true
+    model_prefixes: ["ollama-local/"]
+    model_id_prefix: "ollama-local/"
+    strip_model_prefix: true
+    allow_private_network: true
+    static_models: []
+  ollama-cloud:
+    name: ollama-cloud
+    type: ollama
+    base_url: https://ollama.com
+    api_key_env: OLLAMA_CLOUD_API_KEY
+    enabled: true
+    supports_chat: true
+    supports_streaming: true
+    supports_images: false
+    supports_models: true
+    model_prefixes: ["ollama-cloud/"]
+    model_id_prefix: "ollama-cloud/"
+    strip_model_prefix: true
+    static_models: []
+routes:
+  - provider: openai
+    prefixes: ["gpt-", "o3-"]
+  - provider: deepseek
+    prefixes: ["deepseek-"]
+  - provider: perplexity
+    prefixes: ["sonar-"]
+  - provider: kimi
+    prefixes: ["kimi-"]
+  - provider: zai
+    prefixes: ["glm-"]
+  - provider: huggingface
+    prefixes: ["hf/"]
+    strip_prefix: "hf/"
+  - provider: ollama-local
+    prefixes: ["ollama-local/"]
+    strip_prefix: "ollama-local/"
+  - provider: ollama-cloud
+    prefixes: ["ollama-cloud/"]
+    strip_prefix: "ollama-cloud/"
