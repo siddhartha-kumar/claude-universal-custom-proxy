@@ -71,6 +71,10 @@ curl http://localhost:8080/v1/chat/completions \
 
 Run behind TLS, configure `GATEWAY_ENVIRONMENT=production`, set `GATEWAY_API_KEYS`, keep provider credentials in environment variables or a secret manager, and expose only the gateway to clients. Production mode refuses to start without gateway authentication.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md), [docs/contributing.md](docs/contributing.md), and [docs/branching-strategy.md](docs/branching-strategy.md). Code of conduct in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Security disclosures in [SECURITY.md](SECURITY.md).
+
 ## License
 
-MIT License. Copyright (c) 2026 Siddhartha Kumar.
+MIT License. Copyright (c) 2026 Siddhartha Kumar. See [LICENSE](LICENSE).
