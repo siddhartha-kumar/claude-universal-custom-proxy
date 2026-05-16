@@ -36,6 +36,7 @@ secrets/
 # Editors and operating systems
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 .DS_Store

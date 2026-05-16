@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a defect in the gateway.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear and concise description of the defect.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Start the gateway with ...
+        2. Send a request to ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Gateway version, Python version, operating system, deployment topology.
+      placeholder: |
+        - Gateway version:
+        - Python version:
+        - Operating system:
+        - Deployment: docker / systemd / local / other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Redacted JSON log lines from the gateway, if available.
+      render: shell
