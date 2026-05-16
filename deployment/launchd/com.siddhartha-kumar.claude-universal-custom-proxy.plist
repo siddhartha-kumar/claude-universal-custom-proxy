@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.siddhartha-kumar.claude-universal-custom-proxy</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/opt/claude-universal-custom-proxy/.venv/bin/uvicorn</string>
+        <string>llm_proxy_gateway.main:app</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8080</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/usr/local/opt/claude-universal-custom-proxy</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/opt/claude-universal-custom-proxy/.venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>GATEWAY_CONFIG_FILE</key>
+        <string>/usr/local/opt/claude-universal-custom-proxy/config/default.yaml</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>NetworkState</key>
+        <true/>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/usr/local/var/log/claude-universal-custom-proxy/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/usr/local/var/log/claude-universal-custom-proxy/stderr.log</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
