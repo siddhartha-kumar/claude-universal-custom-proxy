@@ -52,6 +52,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entries so the symptom-first reader also finds the fix.
 
 ### Changed
+- Example scripts (`chat`, `stream`, `models` in PowerShell, curl, and
+  Python) now auto-resolve `OPENAI_COMPATIBLE_API_KEY` from `.env`
+  when the environment variable is unset. Precedence: env var first,
+  then `./.env`, then `<repo-root>/.env`. The hard requirement on the
+  env var is removed; a clear error message fires only when neither
+  the env var nor `.env` provides a key.
+- Updated example READMEs and SETUP.md Step 7-E / Troubleshooting
+  callouts to reflect the new precedence.
+- Default model in the example scripts changed from
+  `ollama-local/llama3.2` (requires a local Ollama install) to
+  `ollama-cloud/gemma3:4b` (works as long as `OLLAMA_CLOUD_API_KEY`
+  is configured).
+
+### Changed
 - Renamed the project, repository, distribution package, and Docker image to
   `claude-universal-custom-proxy` to reflect the Claude Code compatibility
   focus. The Python module path remains `llm_proxy_gateway` for import

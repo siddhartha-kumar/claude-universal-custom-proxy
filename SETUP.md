@@ -695,16 +695,16 @@ way.
 > Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 > ```
 
-> **First-time Windows tip — read the real key.** Do not paste the
-> placeholder `my-super-secret-proxy-key-9f8a2c` into the env var. Read
-> the actual value from `.env` so they match:
+> **About the API key.** The example scripts (PowerShell, curl, Python)
+> automatically pick up `GATEWAY_API_KEYS` from your `.env` file if
+> `OPENAI_COMPATIBLE_API_KEY` is not set in the current session. So
+> running `.\examples\powershell\chat.ps1` from the repo root will
+> work without any extra environment variable, as long as `.env` exists
+> and contains a `GATEWAY_API_KEYS` line.
 >
-> ```powershell
-> $env:OPENAI_COMPATIBLE_API_KEY = (Select-String -Path .env -Pattern '^GATEWAY_API_KEYS=' | ForEach-Object { $_.Line -replace '^GATEWAY_API_KEYS=', '' })
-> ```
->
-> Without this, you will see
-> `{"error":{"message":"authentication required",...}}` (HTTP 401).
+> If you want to override per-session (for example to test a second
+> client key) you can still set `$env:OPENAI_COMPATIBLE_API_KEY`
+> explicitly; the env var always wins over `.env`.
 
 **macOS / Linux:**
 
@@ -1227,22 +1227,33 @@ Update `OPENAI_COMPATIBLE_BASE_URL` to match.
 
 ### `401 authentication_error`
 
-The value of `OPENAI_COMPATIBLE_API_KEY` does not match anything in
-`GATEWAY_API_KEYS` from your `.env`. The most common cause is leaving
-the placeholder value (`my-super-secret-proxy-key-9f8a2c`) when your
-real key is something else. Read the real one straight from `.env`:
+`OPENAI_COMPATIBLE_API_KEY` does not match any value in
+`GATEWAY_API_KEYS` from `.env`. The example scripts auto-load this
+from `.env` when the env var is unset, so the usual cause is one of:
+
+- You set `OPENAI_COMPATIBLE_API_KEY` explicitly to a stale or
+  placeholder value (this overrides the `.env` fallback).
+- Your `.env` file is in an unexpected location. The scripts look at
+  `./.env` and then `<repo-root>/.env`.
+- The value in `.env` has stray whitespace or quotes.
+
+Quickest reset:
 
 **Windows PowerShell:**
 
 ```powershell
-$env:OPENAI_COMPATIBLE_API_KEY = (Select-String -Path .env -Pattern '^GATEWAY_API_KEYS=' | ForEach-Object { $_.Line -replace '^GATEWAY_API_KEYS=', '' })
+Remove-Item env:OPENAI_COMPATIBLE_API_KEY -ErrorAction SilentlyContinue
+.\examples\powershell\models.ps1
 ```
 
 **macOS / Linux:**
 
 ```bash
-export OPENAI_COMPATIBLE_API_KEY=$(grep '^GATEWAY_API_KEYS=' .env | cut -d= -f2)
+unset OPENAI_COMPATIBLE_API_KEY
+./examples/curl/models.sh
 ```
+
+The script will pull the real key from `.env` and prove it works.
 
 ### Example PowerShell script fails with `cannot be loaded because running scripts is disabled`
 

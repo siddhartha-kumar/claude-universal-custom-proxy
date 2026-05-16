@@ -1,20 +1,22 @@
-"""List models exposed by the gateway."""
+"""List models exposed by the gateway.
+
+Reads OPENAI_COMPATIBLE_* values from the environment, falling back to a
+``.env`` file at the repository root if the environment variable is unset.
+"""
 
 from __future__ import annotations
 
 import json
-import os
 import sys
 
 import httpx
 
+from _common import resolve_api_key, resolve_base_url
+
 
 def main() -> int:
-    base_url = os.environ.get("OPENAI_COMPATIBLE_BASE_URL", "http://localhost:8080/v1")
-    api_key = os.environ.get("OPENAI_COMPATIBLE_API_KEY")
-    if api_key is None:
-        sys.stderr.write("OPENAI_COMPATIBLE_API_KEY is required\n")
-        return 1
+    base_url = resolve_base_url()
+    api_key = resolve_api_key()
 
     with httpx.Client(timeout=30.0) as client:
         response = client.get(

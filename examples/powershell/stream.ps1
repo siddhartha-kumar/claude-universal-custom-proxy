@@ -1,9 +1,41 @@
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 
+# Resolve OPENAI_COMPATIBLE_* values with the following precedence:
+#   1. Existing environment variable (set with $env:... or [Environment]::SetEnvironmentVariable)
+#   2. .env at the current working directory
+#   3. .env at the repository root (two levels above this script)
+#   4. Built-in default for base URL and model; API key has no default
+
+$EnvFile = $null
+$Candidates = @(
+    (Join-Path (Get-Location).Path ".env"),
+    (Join-Path $PSScriptRoot "..\..\.env")
+)
+foreach ($Candidate in $Candidates) {
+    if (Test-Path $Candidate) { $EnvFile = (Resolve-Path $Candidate).Path; break }
+}
+
+function Read-DotenvValue([string]$Key) {
+    if (-not $EnvFile) { return $null }
+    $Match = Select-String -Path $EnvFile -Pattern "^$([regex]::Escape($Key))=" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($Match) { return ($Match.Line -replace "^$([regex]::Escape($Key))=", "").Trim('"').Trim("'") }
+    return $null
+}
+
 $BaseUrl = if ($env:OPENAI_COMPATIBLE_BASE_URL) { $env:OPENAI_COMPATIBLE_BASE_URL } else { "http://localhost:8080/v1" }
-$Model = if ($env:OPENAI_COMPATIBLE_MODEL) { $env:OPENAI_COMPATIBLE_MODEL } else { "ollama-local/llama3.2" }
-if (-not $env:OPENAI_COMPATIBLE_API_KEY) { throw "OPENAI_COMPATIBLE_API_KEY is not set" }
+$Model = if ($env:OPENAI_COMPATIBLE_MODEL) { $env:OPENAI_COMPATIBLE_MODEL } else { "ollama-cloud/gemma3:4b" }
+$ApiKey = $env:OPENAI_COMPATIBLE_API_KEY
+if (-not $ApiKey) { $ApiKey = Read-DotenvValue "GATEWAY_API_KEYS" }
+if (-not $ApiKey) {
+    throw @"
+OPENAI_COMPATIBLE_API_KEY is not set and no GATEWAY_API_KEYS entry was found in .env.
+
+Either:
+  - Set the env var:  `$env:OPENAI_COMPATIBLE_API_KEY = '...'
+  - Or create .env (in the repo root) with: GATEWAY_API_KEYS=your-key
+"@
+}
 
 $Body = @{
     model    = $Model
@@ -14,7 +46,7 @@ $Body = @{
 } | ConvertTo-Json -Depth 5 -Compress
 
 $Request = [System.Net.Http.HttpRequestMessage]::new("POST", "$BaseUrl/chat/completions")
-$Request.Headers.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $env:OPENAI_COMPATIBLE_API_KEY)
+$Request.Headers.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $ApiKey)
 $Request.Content = [System.Net.Http.StringContent]::new($Body, [System.Text.Encoding]::UTF8, "application/json")
 
 $Client = [System.Net.Http.HttpClient]::new()
