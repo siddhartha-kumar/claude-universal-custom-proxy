@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Claude Code's picker via `enabled`, `supports_models`, and
   `static_models` in `config/default.yaml`, while preserving routing
   for any valid model id.
+- `SETUP.md` Step 7-Pre added: enabling third-party inference /
+  developer mode inside Claude Code, both via the Settings UI and
+  via `~/.claude/settings.json`. Without this toggle, Claude Code
+  silently ignores the `OPENAI_COMPATIBLE_*` env vars. Cross-linked
+  from Step 7-C and from two new Troubleshooting and decision-tree
+  entries so the symptom-first reader also finds the fix.
 
 ### Changed
 - Renamed the project, repository, distribution package, and Docker image to

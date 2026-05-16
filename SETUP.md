@@ -16,7 +16,7 @@ By the end you will have:
 | 4 | Configure secrets in `.env` | 2 min |
 | 5 | Start the gateway | 1 min |
 | 6 | Verify it works | 1 min |
-| 7 | Point Claude Code at it (with model picker and verification) | 3 min |
+| 7 | Enable Claude Code developer mode and point it at the gateway | 5 min |
 | 8 | (Optional) Add provider API keys | 5 min |
 | 9 | (Optional) Keep the gateway running long-term as a service | 5 min |
 | 10 | Monitor the running gateway (health, readiness, metrics) | 2 min |
@@ -60,6 +60,7 @@ flowchart LR
 - [Step 5. Start the Gateway](#step-5-start-the-gateway)
 - [Step 6. Verify It Works](#step-6-verify-it-works)
 - [Step 7. Point Claude Code at the Gateway](#step-7-point-claude-code-at-the-gateway)
+  - [7-Pre. Enable third-party inference in Claude Code (one-time)](#7-pre-enable-third-party-inference-in-claude-code-one-time)
   - [7-A. Confirm what is actually reachable](#7-a-confirm-what-is-actually-reachable)
   - [7-B. Set the three environment variables](#7-b-set-the-three-environment-variables-claude-code-reads)
   - [7-C. Restart Claude Code](#7-c-restart-claude-code)
@@ -473,6 +474,87 @@ This is the section that ties everything together. By the end, Claude Code
 (or any OpenAI-compatible client) will be sending all of its traffic through
 the gateway you just started.
 
+### 7-Pre. Enable third-party inference in Claude Code (one-time)
+
+Recent Claude Code builds **gate OpenAI-compatible providers behind a
+developer-mode / third-party-inference toggle**. Until that toggle is
+on, Claude Code silently ignores `OPENAI_COMPATIBLE_BASE_URL`,
+`OPENAI_COMPATIBLE_API_KEY`, and `OPENAI_COMPATIBLE_MODEL` and keeps
+talking to Anthropic-hosted models. This is the most common reason
+"my env vars are set but Claude Code is still on the default model"
+shows up in support questions.
+
+Enable it once — this is a per-installation switch, not per-project.
+
+#### Option 1 — Via the Claude Code UI (recommended)
+
+1. Launch Claude Code.
+2. Open **Settings** with **Command + ,** on macOS or **Ctrl + ,** on
+   Windows/Linux. You can also reach it via the slash command
+   `/config` inside any chat.
+3. Navigate to **Developer** (sometimes labeled **Advanced** or
+   **Experimental**) in the settings sidebar.
+4. Turn ON the toggle named one of:
+   - **Use third-party inference providers**
+   - **Enable custom model providers**
+   - **Developer mode**
+
+   (The exact wording depends on your Claude Code version. The
+   feature lives in the same area regardless.)
+5. **Fully quit and reopen Claude Code** (Command + Q on macOS,
+   close every window plus confirm in Task Manager on Windows) so
+   the toggle takes effect.
+
+#### Option 2 — Via the settings file (headless, scripted, or CI setups)
+
+Claude Code stores user settings in a JSON file:
+
+| OS | Path |
+| --- | --- |
+| Windows | `%USERPROFILE%\.claude\settings.json` |
+| macOS | `~/.claude/settings.json` |
+| Linux | `~/.claude/settings.json` |
+
+Open the file in your editor and ensure the developer / third-party
+provider flag is true. Typical key names you may see (one of these,
+not all):
+
+```json
+{
+  "developerMode": true,
+  "useThirdPartyInference": true,
+  "experimental": {
+    "thirdPartyProviders": true
+  }
+}
+```
+
+> Different Claude Code versions use slightly different key names.
+> The safest workflow is to enable the toggle once in the UI
+> (Option 1) and then open the JSON file to see exactly which key
+> Claude Code wrote. From then on, you can manage the setting in
+> the file.
+
+Save the file and **fully quit and reopen Claude Code** so it
+re-reads the configuration.
+
+#### How to confirm the toggle is on
+
+Inside Claude Code, run:
+
+```
+/status
+```
+
+Look for a line that mentions an **OpenAI-compatible**,
+**custom**, or **third-party** provider being enabled or detected.
+If the status output still shows only Anthropic models or warns
+that custom providers are disabled, the toggle did not take effect
+— revisit Option 1 above and confirm the restart was complete.
+
+Once `/status` reports third-party inference as available, continue
+with 7-A below to wire the actual variables.
+
 ### 7-A. Confirm what is actually reachable
 
 Before you tell Claude Code which model to use, look at which upstream
@@ -553,6 +635,11 @@ exec $SHELL
 > values take effect. On Windows, close every Claude Code window. On macOS,
 > use **Command + Q** rather than the red close button. On Linux, exit the
 > tray icon if present.
+>
+> If after restarting Claude Code still appears to use Anthropic models,
+> the most likely cause is that the third-party-inference toggle from
+> [7-Pre](#7-pre-enable-third-party-inference-in-claude-code-one-time)
+> is not enabled. Run `/status` inside Claude Code to confirm.
 
 ### 7-D. Pick a model that matches your configured keys
 
@@ -912,6 +999,7 @@ Stop with **Ctrl + C**.
 | Any endpoint returns 429 | Rate-limited by the gateway itself | Wait, or raise `GATEWAY_RATE_LIMIT_REQUESTS` in `.env` and restart |
 | Claude Code reports "model not found" | Model prefix does not match any route | Run `models.ps1` (Windows) or `models.sh` (macOS/Linux), pick a valid model name |
 | Claude Code keeps using old model name | The desktop app caches env vars at startup | Fully quit Claude Code (Command + Q on macOS), set the variable, relaunch |
+| Claude Code keeps using Anthropic models even after env vars + restart | Developer mode / third-party inference toggle is off | Enable it via Settings → Developer (see [7-Pre](#7-pre-enable-third-party-inference-in-claude-code-one-time)), restart Claude Code |
 
 ---
 
@@ -1178,6 +1266,16 @@ Claude Code fully (Command + Q on macOS, close every window on
 Windows), then relaunch. Inside a running session you can also try
 the `/model <name>` slash command — most builds switch the active
 model immediately.
+
+### Claude Code keeps using Anthropic models despite correct env vars
+
+The env vars `OPENAI_COMPATIBLE_*` are silently ignored by recent
+Claude Code builds until **developer mode / third-party inference**
+is enabled in Settings. See
+[Step 7-Pre](#7-pre-enable-third-party-inference-in-claude-code-one-time)
+for both the UI toggle and the `~/.claude/settings.json` edit. Run
+`/status` inside Claude Code to confirm whether third-party
+providers are currently enabled.
 
 ### A full diagnostic flow
 
