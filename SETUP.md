@@ -19,6 +19,8 @@ By the end you will have:
 | 7 | Point Claude Code at it (with model picker and verification) | 3 min |
 | 8 | (Optional) Add provider API keys | 5 min |
 | 9 | (Optional) Keep the gateway running long-term as a service | 5 min |
+| 10 | Monitor the running gateway (health, readiness, metrics) | 2 min |
+| 11 | Switch Claude Code between gateway and default Anthropic | 2 min |
 
 ---
 
@@ -65,6 +67,18 @@ flowchart LR
   - [7-E. Verify the wire end-to-end](#7-e-verify-the-wire-end-to-end)
 - [Step 8. (Optional) Add Provider API Keys](#step-8-optional-add-provider-api-keys)
 - [Step 9. Keep the Gateway Running Long-Term](#step-9-keep-the-gateway-running-long-term)
+- [Step 10. Monitor the Running Gateway](#step-10-monitor-the-running-gateway)
+  - [10-A. Liveness](#10-a-liveness--is-the-server-up)
+  - [10-B. Readiness](#10-b-readiness--which-upstream-providers-are-reachable)
+  - [10-C. Metrics](#10-c-metrics--what-traffic-has-the-proxy-actually-handled)
+  - [10-D. Continuous watch](#10-d-continuous-watch)
+  - [10-E. Health decision tree](#10-e-health-decision-tree)
+- [Step 11. Switch Claude Code Between Gateway and Default](#step-11-switch-claude-code-between-gateway-and-default)
+  - [11-A. Use the gateway](#11-a-use-the-gateway)
+  - [11-B. Revert to default Claude Code](#11-b-revert-to-default-claude-code-anthropic-models)
+  - [11-C. See which models the gateway exposes](#11-c-see-which-models-the-gateway-exposes)
+  - [11-D. Switch model mid-session](#11-d-switch-model-mid-session-inside-claude-code)
+  - [11-E. Keep the gateway running while reverting](#11-e-keep-the-gateway-running-while-reverting)
 - [Troubleshooting](#troubleshooting)
 - [Glossary](#glossary)
 
@@ -585,6 +599,25 @@ way.
 .\examples\powershell\chat.ps1
 ```
 
+> **First-time Windows tip — execution policy.** If you see
+> `File ... cannot be loaded because running scripts is disabled on this system`,
+> run this once for your user and retry:
+>
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+> ```
+
+> **First-time Windows tip — read the real key.** Do not paste the
+> placeholder `my-super-secret-proxy-key-9f8a2c` into the env var. Read
+> the actual value from `.env` so they match:
+>
+> ```powershell
+> $env:OPENAI_COMPATIBLE_API_KEY = (Select-String -Path .env -Pattern '^GATEWAY_API_KEYS=' | ForEach-Object { $_.Line -replace '^GATEWAY_API_KEYS=', '' })
+> ```
+>
+> Without this, you will see
+> `{"error":{"message":"authentication required",...}}` (HTTP 401).
+
 **macOS / Linux:**
 
 ```bash
@@ -745,6 +778,241 @@ receive Claude Code traffic.
 
 ---
 
+## Step 10. Monitor the Running Gateway
+
+Once Claude Code is wired through the gateway, three endpoints let you
+inspect its state in real time. Use them whenever something feels off,
+or wire them into a dashboard if you keep the gateway running long-term.
+
+### 10-A. Liveness — is the server up?
+
+The simplest check. Hits `/health`, which is unauthenticated.
+
+**Windows PowerShell:**
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8080/health
+```
+
+**macOS / Linux:**
+
+```bash
+curl http://127.0.0.1:8080/health
+```
+
+**Success looks like:**
+
+```json
+{
+  "status": "ok",
+  "service": "Claude Universal Custom Proxy",
+  "environment": "development",
+  "metrics": {}
+}
+```
+
+If this fails with a connection error, the gateway process is not
+running. Restart it with the `uvicorn` command from
+[Step 5](#step-5-start-the-gateway).
+
+### 10-B. Readiness — which upstream providers are reachable?
+
+The `/ready` endpoint probes every configured provider in parallel and
+reports per-provider status. No authentication required.
+
+**Windows PowerShell:**
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8080/ready |
+    Select-Object -ExpandProperty providers |
+    Format-Table name, configured, available, latency_ms, detail
+```
+
+**macOS / Linux:**
+
+```bash
+curl -s http://127.0.0.1:8080/ready | python3 -m json.tool
+```
+
+**Sample output:**
+
+```
+name           configured available latency_ms detail
+----           ---------- --------- ---------- ------
+openai              False     False                  missing OPENAI_API_KEY
+deepseek            False     False                  missing DEEPSEEK_API_KEY
+huggingface          True      True     516.15 available
+ollama-cloud         True      True     742.32 available
+```
+
+**How to read it:**
+
+- `configured=False` — no API key in `.env`. Add one to enable.
+- `configured=True, available=True` — key works, upstream answered.
+  **Routable.**
+- `configured=True, available=False` — key supplied but upstream
+  rejected or timed out. Look at the `detail` column for the reason.
+
+The top-level `status` is `ready` when at least one provider is
+available, `not_ready` otherwise.
+
+### 10-C. Metrics — what traffic has the proxy actually handled?
+
+The `/metrics` endpoint returns rolling per-provider counters and
+requires the gateway API key.
+
+**Windows PowerShell:**
+
+```powershell
+$key = (Select-String -Path .env -Pattern '^GATEWAY_API_KEYS=' | ForEach-Object { $_.Line -replace '^GATEWAY_API_KEYS=', '' })
+Invoke-RestMethod http://127.0.0.1:8080/metrics -Headers @{ Authorization = "Bearer $key" } |
+    Select-Object -ExpandProperty providers
+```
+
+**macOS / Linux:**
+
+```bash
+curl -s http://127.0.0.1:8080/metrics \
+  -H "Authorization: Bearer $(grep '^GATEWAY_API_KEYS=' .env | cut -d= -f2)"
+```
+
+Per-provider counters: `request_count`, `error_count`, `stream_count`,
+`average_latency_ms`, `last_status_code`. Counters are in-memory and
+reset every time the gateway restarts.
+
+### 10-D. Continuous watch
+
+Poll once every two seconds and see drift in real time:
+
+**Windows PowerShell:**
+
+```powershell
+while ($true) { Clear-Host; Invoke-RestMethod http://127.0.0.1:8080/health; Start-Sleep -Seconds 2 }
+```
+
+**macOS / Linux:**
+
+```bash
+watch -n 2 'curl -s http://127.0.0.1:8080/health'
+```
+
+Stop with **Ctrl + C**.
+
+### 10-E. Health decision tree
+
+| Symptom | What it means | Fix |
+| --- | --- | --- |
+| `/health` connection refused | Server is not running | Start with `uvicorn llm_proxy_gateway.main:app --host 127.0.0.1 --port 8080` |
+| `/health` returns OK, `/ready` says `not_ready` | Server is up but no upstream reachable | Add a working key in `.env`, restart the server |
+| `/ready` shows some providers `available=True` | Healthy and routable | Set `OPENAI_COMPATIBLE_MODEL` to a model whose prefix matches one of those providers |
+| `/ready` shows your provider `available=False`, `detail="Authentication Failed"` | The supplied API key is wrong or expired | Replace the value in `.env`, restart the server |
+| `/ready` shows `detail="TimeoutError"` | Upstream did not answer within readiness timeout | Check the upstream provider status page or your network egress |
+| `/metrics` returns 401 | `Authorization` header does not match `GATEWAY_API_KEYS` | Pull the value from `.env` with the `Select-String` snippet in 10-C |
+| Any endpoint returns 429 | Rate-limited by the gateway itself | Wait, or raise `GATEWAY_RATE_LIMIT_REQUESTS` in `.env` and restart |
+| Claude Code reports "model not found" | Model prefix does not match any route | Run `models.ps1` (Windows) or `models.sh` (macOS/Linux), pick a valid model name |
+| Claude Code keeps using old model name | The desktop app caches env vars at startup | Fully quit Claude Code (Command + Q on macOS), set the variable, relaunch |
+
+---
+
+## Step 11. Switch Claude Code Between Gateway and Default
+
+The gateway is opt-in. You can flip between routing through the gateway
+and using Claude Code's default Anthropic-backed mode without touching
+the gateway service.
+
+### 11-A. Use the gateway
+
+Set the three OpenAI-compatible variables, then restart Claude Code:
+
+**Windows PowerShell (persistent):**
+
+```powershell
+$key = (Select-String -Path .env -Pattern '^GATEWAY_API_KEYS=' | ForEach-Object { $_.Line -replace '^GATEWAY_API_KEYS=', '' })
+[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_BASE_URL", "http://127.0.0.1:8080/v1",   "User")
+[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_API_KEY",  $key,                          "User")
+[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_MODEL",    "ollama-cloud/deepseek-v3.2",  "User")
+```
+
+**macOS / Linux (append to `~/.zshrc` or `~/.bashrc`):**
+
+```bash
+export OPENAI_COMPATIBLE_BASE_URL=http://127.0.0.1:8080/v1
+export OPENAI_COMPATIBLE_API_KEY=$(grep '^GATEWAY_API_KEYS=' .env | cut -d= -f2)
+export OPENAI_COMPATIBLE_MODEL=ollama-cloud/deepseek-v3.2
+```
+
+Reload (`exec $SHELL` on Unix) and relaunch Claude Code.
+
+### 11-B. Revert to default Claude Code (Anthropic models)
+
+Unset the three variables. Claude Code falls back to your `claude.ai`
+login or `ANTHROPIC_API_KEY` and routes to Anthropic's Claude models
+directly.
+
+**Windows PowerShell:**
+
+```powershell
+[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_BASE_URL", $null, "User")
+[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_API_KEY",  $null, "User")
+[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_MODEL",    $null, "User")
+```
+
+**macOS / Linux:**
+
+Remove the three `export OPENAI_COMPATIBLE_*` lines from `~/.zshrc` or
+`~/.bashrc`, then:
+
+```bash
+unset OPENAI_COMPATIBLE_BASE_URL OPENAI_COMPATIBLE_API_KEY OPENAI_COMPATIBLE_MODEL
+exec $SHELL
+```
+
+Fully quit and reopen Claude Code. You are back on Anthropic-hosted
+Claude models.
+
+### 11-C. See which models the gateway exposes
+
+Claude Code's desktop UI does not browse the catalog automatically — it
+uses the single model name in `OPENAI_COMPATIBLE_MODEL`. To discover
+what is available right now:
+
+**Windows PowerShell:**
+
+```powershell
+.\examples\powershell\models.ps1
+```
+
+**macOS / Linux:**
+
+```bash
+./examples/curl/models.sh
+```
+
+Pick a model id, set `OPENAI_COMPATIBLE_MODEL` to that value, and
+relaunch Claude Code.
+
+### 11-D. Switch model mid-session inside Claude Code
+
+If you do not want to restart Claude Code, try the built-in slash
+command:
+
+```
+/model ollama-cloud/gemma3:4b
+```
+
+Most Claude Code builds accept any valid catalog id this way and route
+the next turn through the new model immediately. Tab-complete will
+list the names Claude Code knows about.
+
+### 11-E. Keep the gateway running while reverting
+
+You do **not** have to stop the `uvicorn` process to switch back to
+default Claude Code. The gateway is idle when Claude Code is not
+talking to it — it costs nothing to leave it running and re-enable on
+demand.
+
+---
+
 ## Troubleshooting
 
 ### "python is not recognized" (Windows)
@@ -783,7 +1051,50 @@ Update `OPENAI_COMPATIBLE_BASE_URL` to match.
 ### `401 authentication_error`
 
 The value of `OPENAI_COMPATIBLE_API_KEY` does not match anything in
-`GATEWAY_API_KEYS` from your `.env`. Check spacing and quotes.
+`GATEWAY_API_KEYS` from your `.env`. The most common cause is leaving
+the placeholder value (`my-super-secret-proxy-key-9f8a2c`) when your
+real key is something else. Read the real one straight from `.env`:
+
+**Windows PowerShell:**
+
+```powershell
+$env:OPENAI_COMPATIBLE_API_KEY = (Select-String -Path .env -Pattern '^GATEWAY_API_KEYS=' | ForEach-Object { $_.Line -replace '^GATEWAY_API_KEYS=', '' })
+```
+
+**macOS / Linux:**
+
+```bash
+export OPENAI_COMPATIBLE_API_KEY=$(grep '^GATEWAY_API_KEYS=' .env | cut -d= -f2)
+```
+
+### Example PowerShell script fails with `cannot be loaded because running scripts is disabled`
+
+Same root cause as the venv-activation case above, hitting at script
+invocation. Either bypass for one call:
+
+```powershell
+PowerShell.exe -ExecutionPolicy Bypass -File .\examples\powershell\models.ps1
+```
+
+Or flip the per-user policy once and run scripts normally afterwards:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+### Claude Code still shows the old model after editing env vars
+
+The desktop app caches environment variables at startup. Quit
+Claude Code fully (Command + Q on macOS, close every window on
+Windows), then relaunch. Inside a running session you can also try
+the `/model <name>` slash command — most builds switch the active
+model immediately.
+
+### A full diagnostic flow
+
+See [Step 10-E. Health decision tree](#10-e-health-decision-tree) for
+a symptom-to-fix matrix that walks you from "something is wrong" to
+the specific subsystem that needs attention.
 
 ### `404 model_not_found`
 

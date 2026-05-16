@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`SETUP.md`** — a beginner-friendly, step-by-step setup guide covering
   prerequisites, install, configuration, verification, Claude Code wiring,
   and troubleshooting for Windows, macOS, Linux, and Docker.
+- `SETUP.md` Step 10: dedicated section on monitoring the running
+  gateway, with copy-paste `/health`, `/ready`, `/metrics`, and watch-loop
+  commands per OS, plus a symptom-to-fix decision matrix.
+- `SETUP.md` Step 11: switching Claude Code between the gateway and its
+  default Anthropic-backed mode, listing available models, and switching
+  models mid-session via the `/model` slash command.
+- `SETUP.md` Troubleshooting expanded with the most common 401 cause
+  (placeholder gateway key versus real `.env` value), PowerShell
+  execution-policy at script invocation time, and the desktop-app
+  env-var caching pitfall.
 
 ### Changed
 - Renamed the project, repository, distribution package, and Docker image to
