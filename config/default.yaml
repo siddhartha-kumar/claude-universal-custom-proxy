@@ -1,4 +1,4 @@
-app_name: OpenAI Compatible LLM Gateway
+app_name: Claude Universal Custom Proxy
 environment: development
 host: 0.0.0.0
 port: 8080

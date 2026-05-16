@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for your interest in improving the OpenAI Compatible LLM Gateway.
+Thank you for your interest in improving Claude Universal Custom Proxy.
 
 See [`docs/contributing.md`](docs/contributing.md) for engineering expectations
 and [`docs/branching-strategy.md`](docs/branching-strategy.md) for how branches

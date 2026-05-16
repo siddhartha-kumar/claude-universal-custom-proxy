@@ -3,7 +3,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: openai-compatible-llm-gateway:latest
+    image: claude-universal-custom-proxy:latest
     env_file:
       - ../.env
     ports:

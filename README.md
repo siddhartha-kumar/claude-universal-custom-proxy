@@ -1,6 +1,6 @@
-# OpenAI Compatible LLM Gateway
+# Claude Universal Custom Proxy
 
-OpenAI Compatible LLM Gateway is a Python ASGI proxy for routing OpenAI-style API traffic across multiple LLM providers. It exposes stable `/v1` endpoints for chat completions, image generation, model discovery, health checks, and readiness diagnostics while keeping provider-specific credentials and routing rules server side.
+Claude Universal Custom Proxy is a production-grade Python ASGI gateway that exposes OpenAI-compatible APIs over a multi-provider backend. It routes OpenAI-style traffic to OpenAI, DeepSeek, Perplexity, Kimi, Z.AI, the Hugging Face router, and local or cloud Ollama, while keeping provider credentials and routing rules server side. The gateway is designed to work transparently with Claude Code and any other OpenAI-compatible client.
 
 ## Capabilities
 

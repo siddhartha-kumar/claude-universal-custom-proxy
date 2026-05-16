@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenAI Compatible LLM Gateway
+Description=Claude Universal Custom Proxy
 After=network-online.target
 Wants=network-online.target
 
@@ -7,16 +7,16 @@ Wants=network-online.target
 Type=simple
 User=llm-gateway
 Group=llm-gateway
-WorkingDirectory=/opt/openai-compatible-llm-gateway
-EnvironmentFile=/etc/openai-compatible-llm-gateway/gateway.env
-ExecStart=/opt/openai-compatible-llm-gateway/.venv/bin/uvicorn llm_proxy_gateway.main:app --host 0.0.0.0 --port 8080
+WorkingDirectory=/opt/claude-universal-custom-proxy
+EnvironmentFile=/etc/claude-universal-custom-proxy/gateway.env
+ExecStart=/opt/claude-universal-custom-proxy/.venv/bin/uvicorn llm_proxy_gateway.main:app --host 0.0.0.0 --port 8080
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/log/openai-compatible-llm-gateway
+ReadWritePaths=/var/log/claude-universal-custom-proxy
 
 [Install]
 WantedBy=multi-user.target

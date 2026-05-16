@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Additional coverage tests for middleware, provider retries, and the model
   registry merge behavior.
 
+### Changed
+- Renamed the project, repository, distribution package, and Docker image to
+  `claude-universal-custom-proxy` to reflect the Claude Code compatibility
+  focus. The Python module path remains `llm_proxy_gateway` for import
+  stability.
+
 ## [0.1.0] - 2026-05-17
 
 ### Added
@@ -32,5 +38,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mypy, pytest, coverage, bandit, pip-audit, dependabot, and release
   automation.
 
-[Unreleased]: https://github.com/siddhartha-kumar/openai-compatible-llm-gateway/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/siddhartha-kumar/openai-compatible-llm-gateway/releases/tag/v0.1.0
+[Unreleased]: https://github.com/siddhartha-kumar/claude-universal-custom-proxy/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/siddhartha-kumar/claude-universal-custom-proxy/releases/tag/v0.1.0

@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "openai-compatible-llm-gateway"
+name = "claude-universal-custom-proxy"
 version = "0.1.0"
 description = "OpenAI-compatible multi-provider LLM proxy gateway for ASGI deployments."
 readme = "README.md"
@@ -49,9 +49,9 @@ dev = [
 ]
 
 [project.urls]
-Documentation = "https://github.com/siddhartha-kumar/openai-compatible-llm-gateway"
-Repository = "https://github.com/siddhartha-kumar/openai-compatible-llm-gateway"
-Issues = "https://github.com/siddhartha-kumar/openai-compatible-llm-gateway/issues"
+Documentation = "https://github.com/siddhartha-kumar/claude-universal-custom-proxy"
+Repository = "https://github.com/siddhartha-kumar/claude-universal-custom-proxy"
+Issues = "https://github.com/siddhartha-kumar/claude-universal-custom-proxy/issues"
 
 [project.scripts]
 llm-gateway = "llm_proxy_gateway.main:run"

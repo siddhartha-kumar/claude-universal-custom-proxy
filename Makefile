@@ -36,4 +36,4 @@ run:
 	uvicorn llm_proxy_gateway.main:app --host 0.0.0.0 --port 8080
 
 docker-build:
-	docker build -f docker/Dockerfile -t openai-compatible-llm-gateway:latest .
+	docker build -f docker/Dockerfile -t claude-universal-custom-proxy:latest .

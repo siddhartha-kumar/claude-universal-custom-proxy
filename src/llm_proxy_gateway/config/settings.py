@@ -111,7 +111,7 @@ class RouteRuleConfig(BaseModel):
 
 
 class Settings(BaseModel):
-    app_name: str = "OpenAI Compatible LLM Gateway"
+    app_name: str = "Claude Universal Custom Proxy"
     environment: Environment = Environment.DEVELOPMENT
     host: str = "127.0.0.1"
     port: int = Field(default=8080, ge=1, le=65535)

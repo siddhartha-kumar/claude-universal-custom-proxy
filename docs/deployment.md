@@ -3,8 +3,8 @@
 ## Docker
 
 ```bash
-docker build -f docker/Dockerfile -t openai-compatible-llm-gateway:latest .
-docker run --rm -p 8080:8080 --env-file .env openai-compatible-llm-gateway:latest
+docker build -f docker/Dockerfile -t claude-universal-custom-proxy:latest .
+docker run --rm -p 8080:8080 --env-file .env claude-universal-custom-proxy:latest
 ```
 
 ## Compose
