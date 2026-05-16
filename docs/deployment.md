@@ -13,6 +13,15 @@ docker run --rm -p 8080:8080 --env-file .env openai-compatible-llm-gateway:lates
 docker compose -f deployment/docker-compose.yml up --build
 ```
 
+## Compose With Local Ollama
+
+```bash
+docker compose -f deployment/docker-compose.ollama.yml up --build
+```
+
+The Ollama variant starts a local Ollama container alongside the gateway and
+wires `OLLAMA_LOCAL_BASE_URL` to the in-network Ollama service.
+
 ## Production Checklist
 
 - Set `GATEWAY_ENVIRONMENT=production`.
