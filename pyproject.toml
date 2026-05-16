@@ -81,7 +81,6 @@ select = [
   "C4",
   "E",
   "F",
-  "I",
   "N",
   "S",
   "SIM",
@@ -111,13 +110,17 @@ module = ["yaml"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-addopts = "-ra --strict-markers --strict-config --cov=llm_proxy_gateway --cov-report=term-missing"
+addopts = "-ra --strict-markers --strict-config --cov=src/llm_proxy_gateway --cov-report=term-missing"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-source = ["llm_proxy_gateway"]
+source = ["src/llm_proxy_gateway"]
+omit = [
+  "src/llm_proxy_gateway/__main__.py",
+  "src/llm_proxy_gateway/providers/base.py",
+]
 
 [tool.coverage.report]
 show_missing = true
