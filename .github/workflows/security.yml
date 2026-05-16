@@ -32,7 +32,7 @@ jobs:
         run: bandit -r src
 
       - name: pip-audit
-        run: pip-audit
+        run: pip-audit --skip-editable
 
   codeql:
     name: CodeQL

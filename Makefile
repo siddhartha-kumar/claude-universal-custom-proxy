@@ -30,7 +30,7 @@ coverage:
 
 security:
 	bandit -r src
-	pip-audit
+	pip-audit --skip-editable
 
 run:
 	uvicorn llm_proxy_gateway.main:app --host 0.0.0.0 --port 8080
