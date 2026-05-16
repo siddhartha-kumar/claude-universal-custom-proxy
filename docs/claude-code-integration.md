@@ -14,7 +14,7 @@ sequenceDiagram
     participant GW as Gateway (Python ASGI)
     participant UP as Upstream provider
 
-    CC->>GW: POST /v1/chat/completions (Authorization: Bearer <gateway key>)
+    CC->>GW: POST /v1/chat/completions (Bearer gateway-key)
     GW->>GW: Auth + rate limit + route by model prefix
     GW->>UP: Forward request with provider credentials
     UP-->>GW: Chat or SSE stream

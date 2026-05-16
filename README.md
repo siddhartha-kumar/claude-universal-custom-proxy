@@ -80,28 +80,28 @@ Claude Universal Custom Proxy is a single, self-hosted ASGI service that:
 ```mermaid
 flowchart LR
     subgraph Clients
-        CC[Claude Code]
-        SDK[OpenAI SDK]
-        CURL[curl / scripts]
+        CC["Claude Code"]
+        SDK["OpenAI SDK"]
+        CURL["curl / scripts"]
     end
 
-    subgraph Gateway[Claude Universal Custom Proxy]
-        MW[Middleware<br/>auth · rate limit · body limit · headers · request context]
-        API[FastAPI router<br/>/v1/chat /v1/images /v1/models /health /ready /metrics]
-        ROUTE[Model router<br/>prefix matching]
-        REG[Model registry<br/>static + dynamic discovery]
-        ADAPT[Provider adapters<br/>OpenAI-compatible · Ollama]
-        OBS[Observability<br/>structured logs · correlation IDs · metrics]
+    subgraph Gateway["Claude Universal Custom Proxy"]
+        MW["Middleware<br/>auth · rate limit · body limit · headers · request context"]
+        API["FastAPI router<br/>/v1/chat · /v1/images · /v1/models · /health · /ready · /metrics"]
+        ROUTE["Model router<br/>prefix matching"]
+        REG["Model registry<br/>static + dynamic discovery"]
+        ADAPT["Provider adapters<br/>OpenAI-compatible · Ollama"]
+        OBS["Observability<br/>structured logs · correlation IDs · metrics"]
     end
 
     subgraph Upstreams
-        OAI[OpenAI]
-        DS[DeepSeek]
-        PPX[Perplexity]
-        KIMI[Kimi]
-        ZAI[Z.AI]
-        HF[Hugging Face router]
-        OLL[Ollama local / cloud]
+        OAI["OpenAI"]
+        DS["DeepSeek"]
+        PPX["Perplexity"]
+        KIMI["Kimi"]
+        ZAI["Z.AI"]
+        HF["Hugging Face router"]
+        OLL["Ollama local / cloud"]
     end
 
     Clients --> MW --> API
@@ -114,7 +114,7 @@ flowchart LR
     ADAPT --> ZAI
     ADAPT --> HF
     ADAPT --> OLL
-    API -.metrics + logs.-> OBS
+    API -. metrics + logs .-> OBS
 ```
 
 ### Request lifecycle
@@ -125,10 +125,10 @@ sequenceDiagram
     participant Client
     participant Gateway
     participant Provider
-    Client->>Gateway: POST /v1/chat/completions<br/>Authorization: Bearer <gateway key>
+    Client->>Gateway: POST /v1/chat/completions (Bearer gateway-key)
     Gateway->>Gateway: Verify gateway key (constant-time)
     Gateway->>Gateway: Apply rate limit + body size limit
-    Gateway->>Gateway: Match model prefix -> provider route
+    Gateway->>Gateway: Match model prefix to provider route
     Gateway->>Provider: Forward request with provider credentials
     alt stream=true
         Provider-->>Gateway: SSE chunks (raw or transformed)
@@ -398,9 +398,9 @@ flowchart LR
     REQ[Request] --> CTX[Correlation ID middleware]
     CTX --> LOG[Structured JSON logger]
     REQ --> METRIC[Per-provider metrics]
-    METRIC --> HEALTH[/health endpoint]
-    METRIC --> METRICSEP[/metrics endpoint]
-    READY[/ready endpoint] --> HC[Per-provider healthcheck]
+    METRIC --> HEALTH["/health endpoint"]
+    METRIC --> METRICSEP["/metrics endpoint"]
+    READY["/ready endpoint"] --> HC[Per-provider healthcheck]
 ```
 
 - **Structured logs**: JSON by default with `correlation_id`, `method`, `path`, `status_code`, `latency_ms`, `provider`, `model`. Switch to console format with `GATEWAY_LOG_FORMAT=console`.
