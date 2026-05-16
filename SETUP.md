@@ -75,10 +75,11 @@ flowchart LR
   - [10-E. Health decision tree](#10-e-health-decision-tree)
 - [Step 11. Switch Claude Code Between Gateway and Default](#step-11-switch-claude-code-between-gateway-and-default)
   - [11-A. Use the gateway](#11-a-use-the-gateway)
-  - [11-B. Revert to default Claude Code](#11-b-revert-to-default-claude-code-anthropic-models)
-  - [11-C. See which models the gateway exposes](#11-c-see-which-models-the-gateway-exposes)
+  - [11-B. Revert to default Claude Code (three explicit steps)](#11-b-revert-to-default-claude-code-anthropic-models)
+  - [11-C. See which models the gateway exposes (dynamic /v1/models)](#11-c-see-which-models-the-gateway-exposes)
   - [11-D. Switch model mid-session](#11-d-switch-model-mid-session-inside-claude-code)
   - [11-E. Keep the gateway running while reverting](#11-e-keep-the-gateway-running-while-reverting)
+  - [11-F. Curate which models appear in the picker](#11-f-curate-which-models-appear-in-claude-codes-picker)
 - [Troubleshooting](#troubleshooting)
 - [Glossary](#glossary)
 
@@ -945,9 +946,11 @@ Reload (`exec $SHELL` on Unix) and relaunch Claude Code.
 
 ### 11-B. Revert to default Claude Code (Anthropic models)
 
-Unset the three variables. Claude Code falls back to your `claude.ai`
-login or `ANTHROPIC_API_KEY` and routes to Anthropic's Claude models
-directly.
+This is the official three-step revert. Use it any time you want
+Claude Code to stop routing through the gateway and go back to
+talking directly to Anthropic.
+
+#### Step 1 — Unset the three user-scoped environment variables
 
 **Windows PowerShell:**
 
@@ -959,22 +962,55 @@ directly.
 
 **macOS / Linux:**
 
-Remove the three `export OPENAI_COMPATIBLE_*` lines from `~/.zshrc` or
-`~/.bashrc`, then:
+Remove the three `export OPENAI_COMPATIBLE_*` lines from `~/.zshrc`
+(macOS) or `~/.bashrc` (Linux), then clear the current shell:
 
 ```bash
 unset OPENAI_COMPATIBLE_BASE_URL OPENAI_COMPATIBLE_API_KEY OPENAI_COMPATIBLE_MODEL
 exec $SHELL
 ```
 
-Fully quit and reopen Claude Code. You are back on Anthropic-hosted
-Claude models.
+#### Step 2 — Fully quit and reopen Claude Code
+
+Close every Claude Code window. On macOS use **Command + Q**, not the
+red close button — the menu-bar process caches environment variables
+until quit. On Windows close all visible windows and confirm
+Claude Code is no longer in **Task Manager**. Then relaunch.
+
+#### Step 3 — Confirm Claude Code is back on default Anthropic models
+
+Inside Claude Code, run:
+
+```
+/status
+```
+
+or check the model name in the bottom-right of the chat window. You
+should see a model from the `claude-opus-*` or `claude-sonnet-*`
+family. Claude Code is now using your **`claude.ai` login** or
+**`ANTHROPIC_API_KEY`** (whichever is configured) and routes traffic
+directly to Anthropic — the local gateway is bypassed entirely.
+
+> **Note:** Reverting does **not** stop the gateway service. The
+> `uvicorn` process can stay running idle and costs nothing while
+> Claude Code is not pointed at it. See
+> [11-E](#11-e-keep-the-gateway-running-while-reverting).
 
 ### 11-C. See which models the gateway exposes
 
-Claude Code's desktop UI does not browse the catalog automatically — it
-uses the single model name in `OPENAI_COMPATIBLE_MODEL`. To discover
-what is available right now:
+The gateway implements the OpenAI **model discovery** endpoint at
+`GET /v1/models` and returns the **full dynamic catalog** every time
+a client asks. With both `OLLAMA_CLOUD_API_KEY` and `HF_TOKEN`
+populated, that is roughly **180 models** including the entire
+Ollama Cloud and Hugging Face router catalogs.
+
+Recent Claude Code builds **call `/v1/models` automatically** when
+they detect an OpenAI-compatible base URL and surface the result in
+their model picker, so the catalog appears dynamically — no manual
+list maintenance required on either side.
+
+To list everything the gateway currently advertises from the command
+line:
 
 **Windows PowerShell:**
 
@@ -988,8 +1024,28 @@ what is available right now:
 ./examples/curl/models.sh
 ```
 
-Pick a model id, set `OPENAI_COMPATIBLE_MODEL` to that value, and
-relaunch Claude Code.
+A truncated sample output:
+
+```json
+{
+  "object": "list",
+  "data": [
+    { "id": "gpt-4.1",                                "owned_by": "openai" },
+    { "id": "deepseek-reasoner",                      "owned_by": "deepseek" },
+    { "id": "hf/meta-llama/Llama-3.1-8B-Instruct",    "owned_by": "huggingface" },
+    { "id": "ollama-cloud/deepseek-v3.2",             "owned_by": "ollama-cloud" },
+    { "id": "ollama-cloud/gemma3:4b",                 "owned_by": "ollama-cloud" }
+  ]
+}
+```
+
+If your Claude Code build does not surface the full list in the
+picker UI, you can always:
+
+1. Set `OPENAI_COMPATIBLE_MODEL` to any id from the JSON above and
+   relaunch Claude Code, or
+2. Use the [`/model <name>` slash command](#11-d-switch-model-mid-session-inside-claude-code)
+   inside Claude Code to switch on the fly with tab completion.
 
 ### 11-D. Switch model mid-session inside Claude Code
 
@@ -1010,6 +1066,39 @@ You do **not** have to stop the `uvicorn` process to switch back to
 default Claude Code. The gateway is idle when Claude Code is not
 talking to it — it costs nothing to leave it running and re-enable on
 demand.
+
+### 11-F. Curate which models appear in Claude Code's picker
+
+If your Claude Code build's picker renders the full ~180-entry list
+slowly, or you simply want a shorter dropdown of "your favorite
+five", curate the catalog at the gateway level. Two knobs control
+what `/v1/models` returns:
+
+| Knob | Where | Effect |
+| --- | --- | --- |
+| `enabled: false` on a provider | `config/default.yaml` | Hides every model from that provider entirely |
+| `supports_models: false` on a provider | `config/default.yaml` | Keeps the provider routable for chat, but stops it from contributing to `/v1/models` |
+| `static_models: [...]` on a provider | `config/default.yaml` | When dynamic discovery is off **or** fails, only these ids appear |
+
+**Example — make only DeepSeek-V3 and Llama-3.1 visible in the
+picker, while still allowing routing to any other model by setting
+`OPENAI_COMPATIBLE_MODEL` directly:**
+
+```yaml
+providers:
+  ollama-cloud:
+    supports_models: false           # do not contribute the 39-model dynamic list
+    static_models: ["deepseek-v3.2"] # surface only this one
+  huggingface:
+    supports_models: false
+    static_models: ["meta-llama/Llama-3.1-8B-Instruct"]
+```
+
+After editing `config/default.yaml`, restart the gateway. Claude Code
+will see a much shorter picker on its next launch, but
+`OPENAI_COMPATIBLE_MODEL=ollama-cloud/gemma3:4b` (or any other valid
+id) will still route correctly — routing and discovery are
+independent.
 
 ---
 

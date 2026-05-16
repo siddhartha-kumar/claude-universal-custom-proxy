@@ -32,6 +32,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (placeholder gateway key versus real `.env` value), PowerShell
   execution-policy at script invocation time, and the desktop-app
   env-var caching pitfall.
+- `SETUP.md` Step 11-B restructured into three explicit, numbered
+  steps for reverting Claude Code to its default Anthropic-backed
+  mode, including a `/status` verification step.
+- `SETUP.md` Step 11-C rewritten to document dynamic model discovery
+  via `/v1/models`, confirming that the gateway exposes the full
+  ~180-entry catalog (Ollama Cloud + Hugging Face + OpenAI-shaped
+  providers) so any OpenAI-compatible client picker sees them
+  automatically.
+- `SETUP.md` Step 11-F added: curating which models appear in
+  Claude Code's picker via `enabled`, `supports_models`, and
+  `static_models` in `config/default.yaml`, while preserving routing
+  for any valid model id.
 
 ### Changed
 - Renamed the project, repository, distribution package, and Docker image to
