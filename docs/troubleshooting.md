@@ -19,8 +19,8 @@ The model name does not match a configured prefix. Check
 
 For the Anthropic surface, model ids that start with `claude-*` fall
 back to `anthropic_default_model` from `config/default.yaml` (default
-`ollama-cloud/gemma3:4b`). Set this to a routed model id or pass
-`--model <routed-name>` to Claude Code.
+`hf/meta-llama/Llama-3.1-8B-Instruct`). Set this to any routed model
+id or pass `--model <routed-name>` to Claude Code.
 
 ## Provider missing from `/ready`
 

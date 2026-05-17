@@ -15,7 +15,7 @@ Configuration starts from YAML and is then overridden by environment variables.
 | `request_timeout_seconds`, `max_request_bytes` | Per-request limits |
 | `rate_limit_enabled`, `rate_limit_requests`, `rate_limit_window_seconds` | In-memory rate limiter |
 | `provider_readiness_timeout_seconds` | Per-provider timeout used by `/ready` probes |
-| `anthropic_default_model` | When `/v1/messages` receives a `claude-*` model id with no matching route, the gateway substitutes this id for routing. Default `ollama-cloud/gemma3:4b`. Set to `null` to return `404 model_not_found` instead. |
+| `anthropic_default_model` | When `/v1/messages` receives a `claude-*` model id with no matching route, the gateway substitutes this id for routing. Default `hf/meta-llama/Llama-3.1-8B-Instruct`. Set to `null` to return `404 model_not_found` instead. |
 | `providers` | Map of provider configurations (see below) |
 | `routes` | List of prefix routing rules (see below) |
 

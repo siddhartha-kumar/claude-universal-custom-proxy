@@ -17,7 +17,7 @@
 | `GATEWAY_RATE_LIMIT_ENABLED` | Enables in-memory rate limiting |
 | `GATEWAY_RATE_LIMIT_REQUESTS` | Requests per window |
 | `GATEWAY_RATE_LIMIT_WINDOW_SECONDS` | Rate limit window length |
-| `GATEWAY_ANTHROPIC_DEFAULT_MODEL` | When `/v1/messages` receives a `claude-*` model id with no matching route, the gateway substitutes this routed model id. Default `ollama-cloud/gemma3:4b`. Leave blank to return `404 model_not_found` instead. |
+| `GATEWAY_ANTHROPIC_DEFAULT_MODEL` | When `/v1/messages` receives a `claude-*` model id with no matching route, the gateway substitutes this routed model id. Default `hf/meta-llama/Llama-3.1-8B-Instruct` (works well with Claude Code's tool prompt). Leave blank to return `404 model_not_found` instead. |
 
 ## Provider credentials (upstream)
 

@@ -12,7 +12,7 @@ rate_limit_enabled: true
 rate_limit_requests: 120
 rate_limit_window_seconds: 60
 provider_readiness_timeout_seconds: 2.0
-anthropic_default_model: ollama-cloud/gemma3:4b
+anthropic_default_model: hf/meta-llama/Llama-3.1-8B-Instruct
 providers:
   openai:
     name: openai

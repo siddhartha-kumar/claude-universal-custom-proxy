@@ -49,7 +49,7 @@ Model selection is **not** done via an environment variable. Use:
 - `/model <name>` slash command inside a running Claude Code session.
 - Fall back to `anthropic_default_model` in `config/default.yaml` for
   `claude-*` model ids without a matching route (default
-  `ollama-cloud/gemma3:4b`).
+  `hf/meta-llama/Llama-3.1-8B-Instruct`).
 
 > **`OPENAI_COMPATIBLE_*` clarification.** Variables like
 > `OPENAI_COMPATIBLE_BASE_URL` are honored by OpenAI-compatible clients
@@ -191,7 +191,7 @@ Anthropic endpoints, the developer-mode toggle may not be on — see
   route AND no `anthropic_default_model` fallback is set. Either set
   `--model <routed-name>` at launch, use `/model <routed-name>`
   inside Claude Code, or configure
-  `anthropic_default_model: ollama-cloud/gemma3:4b` in
+  `anthropic_default_model: hf/meta-llama/Llama-3.1-8B-Instruct` in
   `config/default.yaml`.
 - **Empty `result` despite stream completing** — the upstream model
   returned no content. Common with small base models that can't
