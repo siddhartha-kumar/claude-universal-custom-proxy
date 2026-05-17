@@ -81,17 +81,24 @@ Claude Universal Custom Proxy is a single, self-hosted ASGI service that:
 
 ```mermaid
 flowchart LR
-    subgraph Clients
+    subgraph AnthropicClients["Anthropic-shape clients"]
         CC["Claude Code"]
-        SDK["OpenAI SDK"]
+        CD["Claude Desktop"]
+        ASDK["Anthropic SDK"]
+    end
+
+    subgraph OpenAIClients["OpenAI-shape clients"]
+        CONT["Continue / Cline / Cursor"]
+        OSDK["OpenAI SDK"]
         CURL["curl / scripts"]
     end
 
     subgraph Gateway["Claude Universal Custom Proxy"]
-        MW["Middleware<br/>auth · rate limit · body limit · headers · request context"]
-        API["FastAPI router<br/>/v1/chat · /v1/images · /v1/models · /health · /ready · /metrics"]
-        ROUTE["Model router<br/>prefix matching"]
-        REG["Model registry<br/>static + dynamic discovery"]
+        MW["Middleware<br/>auth (Bearer + x-api-key) · rate limit · body limit · headers"]
+        ANTH["POST /v1/messages<br/>Anthropic Messages API"]
+        OAI_API["POST /v1/chat/completions<br/>POST /v1/images/generations<br/>GET /v1/models · /health · /ready · /metrics"]
+        XLAT["Anthropic ↔ OpenAI translator<br/>requests · responses · streaming SSE"]
+        ROUTE["Model router<br/>prefix matching + claude-* fallback"]
         ADAPT["Provider adapters<br/>OpenAI-compatible · Ollama"]
         OBS["Observability<br/>structured logs · correlation IDs · metrics"]
     end
@@ -106,9 +113,9 @@ flowchart LR
         OLL["Ollama local / cloud"]
     end
 
-    Clients --> MW --> API
-    API --> ROUTE --> ADAPT
-    API --> REG
+    AnthropicClients --> MW --> ANTH --> XLAT --> ROUTE
+    OpenAIClients --> MW --> OAI_API --> ROUTE
+    ROUTE --> ADAPT
     ADAPT --> OAI
     ADAPT --> DS
     ADAPT --> PPX
@@ -116,10 +123,10 @@ flowchart LR
     ADAPT --> ZAI
     ADAPT --> HF
     ADAPT --> OLL
-    API -. metrics + logs .-> OBS
+    Gateway -. metrics + logs .-> OBS
 ```
 
-### Request lifecycle
+### Request lifecycle — OpenAI Chat Completions
 
 ```mermaid
 sequenceDiagram
@@ -138,6 +145,29 @@ sequenceDiagram
     else stream=false
         Provider-->>Gateway: JSON response
         Gateway-->>Client: OpenAI-shaped JSON + metrics
+    end
+```
+
+### Request lifecycle — Anthropic Messages (Claude Code path)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Claude Code / Anthropic SDK
+    participant Gateway
+    participant Provider
+    Client->>Gateway: POST /v1/messages (x-api-key gateway-key)
+    Gateway->>Gateway: Verify gateway key
+    Gateway->>Gateway: Translate Anthropic request to OpenAI shape
+    Gateway->>Gateway: Resolve claude-* to anthropic_default_model
+    Gateway->>Gateway: Route by prefix to provider adapter
+    Gateway->>Provider: Forward request with provider credentials
+    alt stream=true
+        Provider-->>Gateway: OpenAI SSE chunks
+        Gateway-->>Client: Anthropic SSE events (message_start, content_block_*, message_delta, message_stop)
+    else stream=false
+        Provider-->>Gateway: OpenAI JSON response
+        Gateway-->>Client: Anthropic Messages JSON (content blocks, stop_reason, usage)
     end
 ```
 
@@ -300,26 +330,26 @@ Routes are config-driven; add a provider with its own prefix by editing `config/
 
 ## Claude Code integration
 
-Claude Code's OpenAI-compatible mode reads three environment variables. Point them at the gateway and Claude Code becomes a thin client over the multi-provider backend.
+Claude Code speaks the **Anthropic Messages API** natively. The gateway exposes `POST /v1/messages` (and accepts `x-api-key` auth) so Claude Code can use it without any client-side adapter. Set two environment variables and Claude Code becomes a thin client over the multi-provider backend.
 
 ### Windows (PowerShell, persistent)
 
 ```powershell
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_BASE_URL", "http://127.0.0.1:8080/v1", "User")
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_API_KEY",  "change-this-before-use",    "User")
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_MODEL",    "ollama-local/llama3.2",     "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080", "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY",  "change-this-before-use", "User")
 ```
 
 ### macOS / Linux (zsh or bash)
 
 ```bash
-echo 'export OPENAI_COMPATIBLE_BASE_URL=http://127.0.0.1:8080/v1' >> ~/.zshrc
-echo 'export OPENAI_COMPATIBLE_API_KEY=change-this-before-use'    >> ~/.zshrc
-echo 'export OPENAI_COMPATIBLE_MODEL=ollama-local/llama3.2'       >> ~/.zshrc
+echo 'export ANTHROPIC_BASE_URL=http://127.0.0.1:8080'    >> ~/.zshrc
+echo 'export ANTHROPIC_API_KEY=change-this-before-use'    >> ~/.zshrc
 exec $SHELL
 ```
 
-Then relaunch Claude Code. Detailed troubleshooting and verification commands: [`docs/claude-code-integration.md`](docs/claude-code-integration.md).
+Then relaunch Claude Code. Pick a routed model with `claude --model <name>` or `/model <name>` inside the session. Detailed troubleshooting and verification commands: [`docs/claude-code-integration.md`](docs/claude-code-integration.md).
+
+> **Heads up:** `OPENAI_COMPATIBLE_*` env vars are honored by OpenAI-compatible clients (Continue, Cline, Cursor, LM Studio, OpenAI SDK), **not** by Claude Code. The same gateway serves both audiences on the same port.
 
 ---
 

@@ -113,19 +113,31 @@ Each directory has a dedicated README with copy-paste install commands.
 
 ## Smoke Test
 
+The example scripts auto-load `GATEWAY_API_KEYS` from `.env`, so no
+explicit env var is needed when running from the repo root.
+
 ### Windows PowerShell
 
 ```powershell
-$env:OPENAI_COMPATIBLE_API_KEY = "change-this-before-use"
 .\examples\powershell\chat.ps1
 ```
 
 ### macOS and Linux
 
 ```bash
-export OPENAI_COMPATIBLE_API_KEY=change-this-before-use
 ./examples/curl/chat.sh
 ```
+
+### Through Claude Code (Anthropic-shape end-to-end)
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:8080 \
+  ANTHROPIC_API_KEY=$(grep '^GATEWAY_API_KEYS=' .env | cut -d= -f2) \
+  claude --bare --model "hf/meta-llama/Llama-3.1-8B-Instruct" -p "Reply with: works" --output-format json
+```
+
+A successful run returns a JSON envelope with `"is_error": false` and
+a populated `"result"` field.
 
 ## Known Platform Differences
 

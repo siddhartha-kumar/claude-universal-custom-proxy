@@ -8,16 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Anthropic Messages API endpoint at `POST /v1/messages`**, giving
-  the gateway full protocol-level compatibility with Claude Code,
-  Claude Desktop, and any client built on the Anthropic SDK. Includes
-  bidirectional translation between Anthropic and OpenAI shapes for
-  requests, responses, and streaming SSE; system-prompt extraction;
-  content-block (text, image, tool_use, tool_result) conversion;
-  finish-reason mapping (`stop` ↔ `end_turn`, `length` ↔ `max_tokens`,
-  `tool_calls` ↔ `tool_use`); and Anthropic SSE event re-emission
+
+#### Anthropic Messages API support (Claude Code, Claude Desktop)
+- New endpoint `POST /v1/messages` accepting the Anthropic Messages
+  API shape, with full bidirectional translation to the existing
+  OpenAI Chat Completions pipeline. Covers system-prompt extraction,
+  text and image content blocks (base64 → data URL, url passthrough),
+  `tool_use` and `tool_result` block translation, `tools` /
+  `tool_choice` mapping, `stop_sequences` → `stop`, finish-reason
+  mapping (`stop` ↔ `end_turn`, `length` ↔ `max_tokens`, `tool_calls`
+  ↔ `tool_use`), and usage field rename
+  (`prompt_tokens` → `input_tokens`,
+  `completion_tokens` → `output_tokens`).
+- Anthropic SSE event re-emission for streaming responses
   (`message_start`, `content_block_start`, `content_block_delta`,
-  `content_block_stop`, `message_delta`, `message_stop`).
+  `content_block_stop`, `message_delta`, `message_stop`) so Claude
+  Code parses the stream natively.
 - `x-api-key` header support in the auth middleware. Anthropic SDKs
   authenticate this way; the existing `Authorization: Bearer` scheme
   for OpenAI-compatible clients continues to work.
@@ -25,99 +31,109 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GATEWAY_ANTHROPIC_DEFAULT_MODEL` env var) that maps `claude-*`
   model ids with no matching route to a fallback gateway model.
   Default in `config/default.yaml` is `ollama-cloud/gemma3:4b`.
-- 15 unit tests for the translator (request/response/stream shape
-  conversions, error paths) and 6 integration tests for `/v1/messages`
-  (round-trip, x-api-key auth, streaming, default-model fallback,
-  validation error, model_not_found when fallback disabled).
+- 21 new tests: 15 unit tests for the translator (request, response,
+  stream-shape conversions, error paths) and 6 integration tests for
+  `/v1/messages` (round-trip, `x-api-key` auth, streaming SSE
+  emission, default-model fallback, validation error, and
+  `model_not_found` when fallback is disabled).
+
+#### Onboarding and operations docs
+- `SETUP.md` — single-file, step-by-step setup walkthrough for
+  Windows, macOS, Linux, and Docker. Covers prerequisites, install,
+  `.env`, start, verify, Claude Code wiring, optional provider keys,
+  long-term service install, monitoring, and revert. Linked
+  prominently from the README hero, the quick-start callout, and the
+  documentation index.
+- `SETUP.md` Step 7-Pre on enabling developer mode / third-party
+  inference inside Claude Code (UI toggle and
+  `~/.claude/settings.json`).
+- `SETUP.md` Step 10 on monitoring the running gateway with
+  `/health`, `/ready`, `/metrics`, a continuous-watch loop, and a
+  symptom-to-fix decision matrix.
+- `SETUP.md` Step 11 on switching Claude Code between the gateway and
+  its default Anthropic-backed mode, including a three-step revert,
+  the `/model` slash command for mid-session switching, and curating
+  the picker via `static_models` in `config/default.yaml`.
+
+#### Cross-platform tooling
+- PowerShell client examples under `examples/powershell/`
+  (`chat.ps1`, `stream.ps1`, `models.ps1`) with native SSE handling.
+- NSSM-based Windows service installer under
+  `deployment/windows/install-service.ps1`.
+- macOS `launchd` plist and per-user-agent / system-daemon install
+  instructions under `deployment/launchd/`.
+- `docs/platforms.md` collecting per-OS install, run, env-var, and
+  service registration recipes.
+- `.gitattributes` normalizing line endings (`.ps1` keeps CRLF, the
+  rest stays LF).
+
+#### Community and quality scaffolding
+- `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`,
+  `CHANGELOG.md`, `CODEOWNERS`, GitHub issue templates, pull request
+  template, and a CodeQL configuration that runs the
+  `security-extended` and `security-and-quality` query suites
+  against `src/`.
+- Python client examples under `examples/python/`
+  (`chat_completion.py`, `stream_chat.py`, `list_models.py`) with a
+  shared `_common.py` resolver.
+- `examples/curl/models.sh` for OpenAI-surface model discovery.
+- Compose stack `deployment/docker-compose.ollama.yml` that boots the
+  gateway alongside a containerized local Ollama.
+- Additional test coverage for middleware, observability, and
+  provider retry behaviour (coverage rose from 87% to 89% pre-feature
+  and stayed at 88.54% after the Anthropic addition).
 
 ### Changed
-- SETUP.md Step 7-B and Step 11 rewritten to use the now-supported
-  `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` env vars for Claude Code,
-  with a heads-up clarifying that the `OPENAI_COMPATIBLE_*` convention
-  is for *other* OpenAI-compatible clients (Continue, Cline, Cursor,
-  LM Studio, OpenAI SDK) — not Claude Code itself.
-- README hero matrix now lists both protocol surfaces explicitly.
+- Project, repository, distribution package, Docker image, systemd
+  paths, and application display name renamed to
+  `claude-universal-custom-proxy`. The Python module path stays
+  `llm_proxy_gateway` so existing imports keep working.
+- Example scripts (PowerShell, curl, Python) now auto-resolve
+  `OPENAI_COMPATIBLE_API_KEY` from `.env` when the environment
+  variable is unset. Precedence: env var, then `./.env`, then
+  `<repo-root>/.env`. The hard env-var requirement is gone; a clear
+  error fires only when neither source provides a key. Default model
+  in the example scripts moved from `ollama-local/llama3.2` to
+  `ollama-cloud/gemma3:4b`.
+- Claude Code wiring documentation in SETUP.md (Step 7-B, Step 11)
+  and in `docs/claude-code-integration.md` rewritten to use the
+  Anthropic-native `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` env
+  vars, with an explicit heads-up that `OPENAI_COMPATIBLE_*` names
+  are honored by other OpenAI-compatible clients (Continue, Cline,
+  Cursor, LM Studio, OpenAI SDK) and not by Claude Code itself.
+- README architecture diagram split into two client lanes
+  (Anthropic-shape and OpenAI-shape), surfaces the `/v1/messages`
+  endpoint, and adds a dedicated Anthropic Messages sequence
+  diagram.
+- README hero matrix entry rewritten to call out the dual-protocol
+  surface explicitly.
 
-### Added
-- Community files: `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`,
-  issue templates, pull request template.
-- Python client example under `examples/python/`.
-- CodeQL configuration and `CODEOWNERS`.
-- Additional coverage tests for middleware, provider retries, and the model
-  registry merge behavior.
-- Cross-platform tooling: PowerShell example clients, NSSM-based Windows
-  service installer, macOS launchd plist, `.gitattributes` for consistent
-  line endings.
-- `docs/platforms.md` with per-OS install, run, env-var, and service
-  registration recipes.
-- **`SETUP.md`** — a beginner-friendly, step-by-step setup guide covering
-  prerequisites, install, configuration, verification, Claude Code wiring,
-  and troubleshooting for Windows, macOS, Linux, and Docker.
-- `SETUP.md` Step 10: dedicated section on monitoring the running
-  gateway, with copy-paste `/health`, `/ready`, `/metrics`, and watch-loop
-  commands per OS, plus a symptom-to-fix decision matrix.
-- `SETUP.md` Step 11: switching Claude Code between the gateway and its
-  default Anthropic-backed mode, listing available models, and switching
-  models mid-session via the `/model` slash command.
-- `SETUP.md` Troubleshooting expanded with the most common 401 cause
-  (placeholder gateway key versus real `.env` value), PowerShell
-  execution-policy at script invocation time, and the desktop-app
-  env-var caching pitfall.
-- `SETUP.md` Step 11-B restructured into three explicit, numbered
-  steps for reverting Claude Code to its default Anthropic-backed
-  mode, including a `/status` verification step.
-- `SETUP.md` Step 11-C rewritten to document dynamic model discovery
-  via `/v1/models`, confirming that the gateway exposes the full
-  ~180-entry catalog (Ollama Cloud + Hugging Face + OpenAI-shaped
-  providers) so any OpenAI-compatible client picker sees them
-  automatically.
-- `SETUP.md` Step 11-F added: curating which models appear in
-  Claude Code's picker via `enabled`, `supports_models`, and
-  `static_models` in `config/default.yaml`, while preserving routing
-  for any valid model id.
-- `SETUP.md` Step 7-Pre added: enabling third-party inference /
-  developer mode inside Claude Code, both via the Settings UI and
-  via `~/.claude/settings.json`. Without this toggle, Claude Code
-  silently ignores the `OPENAI_COMPATIBLE_*` env vars. Cross-linked
-  from Step 7-C and from two new Troubleshooting and decision-tree
-  entries so the symptom-first reader also finds the fix.
-
-### Changed
-- Example scripts (`chat`, `stream`, `models` in PowerShell, curl, and
-  Python) now auto-resolve `OPENAI_COMPATIBLE_API_KEY` from `.env`
-  when the environment variable is unset. Precedence: env var first,
-  then `./.env`, then `<repo-root>/.env`. The hard requirement on the
-  env var is removed; a clear error message fires only when neither
-  the env var nor `.env` provides a key.
-- Updated example READMEs and SETUP.md Step 7-E / Troubleshooting
-  callouts to reflect the new precedence.
-- Default model in the example scripts changed from
-  `ollama-local/llama3.2` (requires a local Ollama install) to
-  `ollama-cloud/gemma3:4b` (works as long as `OLLAMA_CLOUD_API_KEY`
-  is configured).
-
-### Changed
-- Renamed the project, repository, distribution package, and Docker image to
-  `claude-universal-custom-proxy` to reflect the Claude Code compatibility
-  focus. The Python module path remains `llm_proxy_gateway` for import
-  stability.
+### Fixed
+- README and `docs/claude-code-integration.md` Mermaid blocks that
+  previously failed to render on GitHub. `[/text/]` in flowchart
+  node labels was parsed as a parallelogram shape (`/health
+  endpoint`, `/metrics endpoint`); labels are now quoted. Angle
+  brackets in sequence-diagram messages (`<gateway key>`) were
+  parsed as HTML tags; replaced with `Bearer gateway-key`.
 
 ## [0.1.0] - 2026-05-17
 
 ### Added
 - OpenAI-compatible `/v1/chat/completions`, `/v1/images/generations`,
   `/v1/models`, `/health`, `/ready`, and `/metrics` endpoints.
-- Prefix-based routing for OpenAI, DeepSeek, Perplexity, Kimi, Z.AI, the
-  Hugging Face Router, local Ollama, and Ollama cloud.
-- Streaming passthrough for OpenAI-compatible providers and OpenAI-shaped SSE
-  transformation for Ollama.
-- Dynamic model registry with static fallback and graceful provider failures.
-- Authentication, rate limiting, body size limits, security headers, and
-  SSRF-validated provider URLs.
-- Structured JSON logging with request correlation IDs and provider metrics.
-- Docker, docker-compose, nginx, systemd, pre-commit, ruff, black, isort,
-  mypy, pytest, coverage, bandit, pip-audit, dependabot, and release
-  automation.
+- Prefix-based routing for OpenAI, DeepSeek, Perplexity, Kimi, Z.AI,
+  the Hugging Face Router, local Ollama, and Ollama cloud.
+- Streaming passthrough for OpenAI-compatible providers and
+  OpenAI-shaped SSE transformation for Ollama.
+- Dynamic model registry with static fallback and graceful provider
+  failures.
+- Authentication, rate limiting, body size limits, security headers,
+  and SSRF-validated provider URLs.
+- Structured JSON logging with request correlation IDs and provider
+  metrics.
+- Docker, docker-compose, nginx, systemd, pre-commit, ruff, black,
+  isort, mypy, pytest, coverage, bandit, pip-audit, dependabot, and
+  release automation.
 
 [Unreleased]: https://github.com/siddhartha-kumar/claude-universal-custom-proxy/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/siddhartha-kumar/claude-universal-custom-proxy/releases/tag/v0.1.0

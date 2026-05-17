@@ -2,6 +2,23 @@
 
 Configuration starts from YAML and is then overridden by environment variables.
 
+## Top-level Fields
+
+| Field | Description |
+| --- | --- |
+| `app_name` | Display name in `/health` and `/status` responses |
+| `environment` | `development`, `test`, or `production` |
+| `host`, `port` | Uvicorn bind address |
+| `log_level`, `log_format` | Logging knobs (`DEBUG`/`INFO`/... and `json`/`console`) |
+| `auth_enabled` | Toggles gateway bearer authentication |
+| `gateway_api_keys` | List of accepted gateway keys (matched against `Authorization: Bearer` and `x-api-key`) |
+| `request_timeout_seconds`, `max_request_bytes` | Per-request limits |
+| `rate_limit_enabled`, `rate_limit_requests`, `rate_limit_window_seconds` | In-memory rate limiter |
+| `provider_readiness_timeout_seconds` | Per-provider timeout used by `/ready` probes |
+| `anthropic_default_model` | When `/v1/messages` receives a `claude-*` model id with no matching route, the gateway substitutes this id for routing. Default `ollama-cloud/gemma3:4b`. Set to `null` to return `404 model_not_found` instead. |
+| `providers` | Map of provider configurations (see below) |
+| `routes` | List of prefix routing rules (see below) |
+
 ## Provider Fields
 
 | Field | Description |
