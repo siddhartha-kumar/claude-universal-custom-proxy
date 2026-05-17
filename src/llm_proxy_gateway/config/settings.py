@@ -125,6 +125,7 @@ class Settings(BaseModel):
     rate_limit_requests: int = Field(default=120, ge=1)
     rate_limit_window_seconds: int = Field(default=60, ge=1)
     provider_readiness_timeout_seconds: float = Field(default=2.0, gt=0.0, le=30.0)
+    anthropic_default_model: str | None = Field(default=None, max_length=256)
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
     routes: list[RouteRuleConfig] = Field(default_factory=list)
 
@@ -202,6 +203,7 @@ def _apply_environment_overrides(data: dict[str, Any], dotenv: dict[str, str]) -
         "GATEWAY_RATE_LIMIT_ENABLED": ("rate_limit_enabled", bool),
         "GATEWAY_RATE_LIMIT_REQUESTS": ("rate_limit_requests", int),
         "GATEWAY_RATE_LIMIT_WINDOW_SECONDS": ("rate_limit_window_seconds", int),
+        "GATEWAY_ANTHROPIC_DEFAULT_MODEL": ("anthropic_default_model", str),
     }
     for env_name, (field_name, value_type) in scalar_overrides.items():
         raw = _get_env(env_name, dotenv)

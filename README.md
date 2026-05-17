@@ -63,8 +63,10 @@ Claude Universal Custom Proxy is a single, self-hosted ASGI service that:
 
 | Capability | Details |
 | --- | --- |
+| **Dual protocol surface** | OpenAI Chat Completions API at `/v1/chat/completions` (for Continue, Cline, Cursor, LM Studio, OpenAI SDK) AND Anthropic Messages API at `/v1/messages` (for Claude Code, Claude Desktop, Anthropic SDK) — same backend, same auth |
 | **OpenAI surface** | `POST /v1/chat/completions`, `POST /v1/images/generations`, `GET /v1/models`, `GET /health`, `GET /ready`, `GET /metrics` |
-| **Streaming** | True SSE passthrough for OpenAI-compatible providers; OpenAI-shaped SSE transformation for Ollama |
+| **Anthropic surface** | `POST /v1/messages` with full Anthropic Messages translation (system prompt extraction, tool use, tool results, images, streaming SSE conversion) |
+| **Streaming** | True SSE passthrough for OpenAI-compatible providers; OpenAI-shaped SSE transformation for Ollama; OpenAI-to-Anthropic SSE event re-emission for `/v1/messages` |
 | **Providers** | OpenAI, DeepSeek, Perplexity, Kimi, Z.AI, Hugging Face router, Ollama local, Ollama cloud |
 | **Routing** | Prefix-based, config-driven, with optional prefix stripping for HF and Ollama |
 | **Security** | Bearer auth, rate limiting, body-size cap, security headers, SSRF-validated provider URLs, redacting logger |

@@ -12,7 +12,13 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import ValidationError
 
 from llm_proxy_gateway.config.settings import Settings
+from llm_proxy_gateway.core.anthropic_translator import (
+    anthropic_request_to_openai,
+    openai_response_to_anthropic,
+    openai_stream_to_anthropic_stream,
+)
 from llm_proxy_gateway.core.errors import GatewayError, ProviderError, RequestValidationError
+from llm_proxy_gateway.models.anthropic import AnthropicMessagesRequest
 from llm_proxy_gateway.models.openai import ChatCompletionRequest, ImageGenerationRequest
 from llm_proxy_gateway.observability.metrics import MetricsStore
 from llm_proxy_gateway.providers.base import ProviderClient, ProviderStatus
@@ -133,6 +139,71 @@ async def chat_completions(request: Request) -> Response:
     return JSONResponse(result)
 
 
+@router.post("/v1/messages", response_model=None)
+async def anthropic_messages(request: Request) -> Response:
+    """Anthropic Messages API compatible endpoint.
+
+    Accepts a request in Anthropic's shape, translates it to the
+    OpenAI Chat Completions shape, routes it through the existing
+    provider adapters, and translates the response back. Both streaming
+    and non-streaming flows are supported.
+    """
+    payload = await _json_body(request)
+    try:
+        anthropic_request = AnthropicMessagesRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise RequestValidationError(_validation_message(exc)) from exc
+
+    requested_model = anthropic_request.model
+    settings = _settings(request)
+    routable_model = _resolve_anthropic_model(requested_model, settings)
+    payload_with_route = dict(payload)
+    payload_with_route["model"] = routable_model
+    openai_payload = anthropic_request_to_openai(payload_with_route)
+
+    match = _model_router(request).route(routable_model)
+    openai_payload["model"] = match.routed_model
+
+    if anthropic_request.stream:
+        openai_stream = _stream_with_metrics(
+            provider=match.provider,
+            provider_name=match.provider_name,
+            payload=openai_payload,
+            metrics=_metrics(request),
+        )
+        anthropic_stream = openai_stream_to_anthropic_stream(
+            openai_stream, requested_model=requested_model
+        )
+        return StreamingResponse(
+            anthropic_stream,
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    start = time.perf_counter()
+    error = False
+    status_code = 200
+    try:
+        upstream = await match.provider.chat_completion(openai_payload)
+    except GatewayError as exc:
+        error = True
+        status_code = exc.status_code
+        raise
+    finally:
+        await _metrics(request).record_provider(
+            match.provider_name,
+            latency_ms=(time.perf_counter() - start) * 1000,
+            status_code=status_code,
+            error=error,
+        )
+    anthropic_response = openai_response_to_anthropic(upstream, requested_model=requested_model)
+    return JSONResponse(anthropic_response)
+
+
 @router.post("/v1/images/generations")
 async def image_generations(request: Request) -> JSONResponse:
     payload = await _json_body(request)
@@ -239,3 +310,20 @@ def _model_router(request: Request) -> ModelRouter:
 
 def _metrics(request: Request) -> MetricsStore:
     return cast(MetricsStore, request.app.state.metrics)
+
+
+def _resolve_anthropic_model(requested: str, settings: Settings) -> str:
+    """Map the model from an Anthropic request to a routable gateway model.
+
+    Claude Code typically sends model ids like ``claude-sonnet-4-5``. If
+    the configured routes do not include a ``claude-*`` prefix, fall
+    back to ``settings.anthropic_default_model`` (a fully-qualified
+    routed model id such as ``ollama-cloud/gemma3:4b``) so a fresh
+    install works out of the box.
+    """
+    if requested.startswith("claude-") and settings.anthropic_default_model:
+        for rule in settings.routes:
+            if any(requested.startswith(prefix) for prefix in rule.prefixes):
+                return requested
+        return settings.anthropic_default_model
+    return requested

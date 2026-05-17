@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Anthropic Messages API endpoint at `POST /v1/messages`**, giving
+  the gateway full protocol-level compatibility with Claude Code,
+  Claude Desktop, and any client built on the Anthropic SDK. Includes
+  bidirectional translation between Anthropic and OpenAI shapes for
+  requests, responses, and streaming SSE; system-prompt extraction;
+  content-block (text, image, tool_use, tool_result) conversion;
+  finish-reason mapping (`stop` ↔ `end_turn`, `length` ↔ `max_tokens`,
+  `tool_calls` ↔ `tool_use`); and Anthropic SSE event re-emission
+  (`message_start`, `content_block_start`, `content_block_delta`,
+  `content_block_stop`, `message_delta`, `message_stop`).
+- `x-api-key` header support in the auth middleware. Anthropic SDKs
+  authenticate this way; the existing `Authorization: Bearer` scheme
+  for OpenAI-compatible clients continues to work.
+- `anthropic_default_model` configuration field (also settable via the
+  `GATEWAY_ANTHROPIC_DEFAULT_MODEL` env var) that maps `claude-*`
+  model ids with no matching route to a fallback gateway model.
+  Default in `config/default.yaml` is `ollama-cloud/gemma3:4b`.
+- 15 unit tests for the translator (request/response/stream shape
+  conversions, error paths) and 6 integration tests for `/v1/messages`
+  (round-trip, x-api-key auth, streaming, default-model fallback,
+  validation error, model_not_found when fallback disabled).
+
+### Changed
+- SETUP.md Step 7-B and Step 11 rewritten to use the now-supported
+  `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` env vars for Claude Code,
+  with a heads-up clarifying that the `OPENAI_COMPATIBLE_*` convention
+  is for *other* OpenAI-compatible clients (Continue, Cline, Cursor,
+  LM Studio, OpenAI SDK) — not Claude Code itself.
+- README hero matrix now lists both protocol surfaces explicitly.
+
+### Added
 - Community files: `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`,
   issue templates, pull request template.
 - Python client example under `examples/python/`.

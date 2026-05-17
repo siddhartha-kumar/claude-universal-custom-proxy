@@ -25,13 +25,31 @@ class GatewayAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         if not self._settings.gateway_api_keys:
             return await call_next(request)
-        authorization = request.headers.get("authorization", "")
-        scheme, _, token = authorization.partition(" ")
-        if scheme.lower() != "bearer" or not token:
+        token = _extract_token(request)
+        if not token:
             return _unauthorized()
         if not constant_time_match(token, self._settings.gateway_api_keys):
             return _unauthorized()
         return await call_next(request)
+
+
+def _extract_token(request: Request) -> str | None:
+    """Return the bearer token from either of the two supported headers.
+
+    Accept ``Authorization: Bearer <token>`` (the OpenAI convention) and
+    ``x-api-key: <token>`` (Anthropic's native scheme). The latter lets
+    Claude Code, Claude Desktop, and any Anthropic SDK authenticate
+    without translation.
+    """
+    authorization = request.headers.get("authorization")
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and token:
+            return token.strip()
+    api_key = request.headers.get("x-api-key")
+    if api_key:
+        return api_key.strip()
+    return None
 
 
 def _unauthorized() -> Response:

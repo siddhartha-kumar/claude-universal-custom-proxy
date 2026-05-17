@@ -585,15 +585,32 @@ Read the result like this:
 
 You only need **one** provider to be `available` to start using the gateway.
 
-### 7-B. Set the three environment variables Claude Code reads
+### 7-B. Set the environment variables Claude Code reads
 
-Claude Code's OpenAI-compatible mode reads three values:
+Claude Code respects two Anthropic-native environment variables. The
+gateway implements both the **Anthropic Messages API** (at
+`/v1/messages`) and the **OpenAI Chat Completions API** (at
+`/v1/chat/completions`) on the same port, so Claude Code can talk to
+it natively:
 
 | Variable | What it is |
 | --- | --- |
-| `OPENAI_COMPATIBLE_BASE_URL` | The `/v1` URL of your gateway. |
-| `OPENAI_COMPATIBLE_API_KEY` | The value of `GATEWAY_API_KEYS` from your `.env`. |
-| `OPENAI_COMPATIBLE_MODEL` | A routed model name from Step 7-D. |
+| `ANTHROPIC_BASE_URL` | The base URL of the gateway (no `/v1` suffix — Claude Code appends it). |
+| `ANTHROPIC_API_KEY` | The value of `GATEWAY_API_KEYS` from your `.env`. Sent as `x-api-key` to the gateway. |
+
+Optional:
+
+| Variable | When to use |
+| --- | --- |
+| `claude --model <name>` flag | Pick a routed gateway model at launch, e.g. `--model hf/meta-llama/Llama-3.1-8B-Instruct`. |
+| `/model <name>` slash command | Switch models inside a running Claude Code session. |
+
+> **Heads up about other env var names.** You may have seen
+> `OPENAI_COMPATIBLE_BASE_URL` / `_API_KEY` / `_MODEL` mentioned in
+> other guides. Those variables are honored by *OpenAI-compatible
+> clients* (Continue, Cline, Cursor, LM Studio, LiteLLM, the OpenAI
+> SDK), **not** by Claude Code itself. The gateway exposes both
+> protocols so each client can use its native env-var convention.
 
 Pick the matching block for your OS. Replace `my-super-secret-proxy-key-9f8a2c`
 with whatever you put in `GATEWAY_API_KEYS` in [Step 4](#step-4-configure-your-env-file).
@@ -601,25 +618,22 @@ with whatever you put in `GATEWAY_API_KEYS` in [Step 4](#step-4-configure-your-e
 **Windows (persistent — survives reboots):**
 
 ```powershell
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_BASE_URL", "http://127.0.0.1:8080/v1",         "User")
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_API_KEY",  "my-super-secret-proxy-key-9f8a2c", "User")
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_MODEL",    "ollama-cloud/deepseek-v3.2",       "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080",            "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY",  "my-super-secret-proxy-key-9f8a2c", "User")
 ```
 
 **Windows (current session only):**
 
 ```powershell
-$env:OPENAI_COMPATIBLE_BASE_URL = "http://127.0.0.1:8080/v1"
-$env:OPENAI_COMPATIBLE_API_KEY  = "my-super-secret-proxy-key-9f8a2c"
-$env:OPENAI_COMPATIBLE_MODEL    = "ollama-cloud/deepseek-v3.2"
+$env:ANTHROPIC_BASE_URL = "http://127.0.0.1:8080"
+$env:ANTHROPIC_API_KEY  = "my-super-secret-proxy-key-9f8a2c"
 ```
 
 **macOS / Linux (persistent — append to `~/.zshrc` on macOS or `~/.bashrc` on Linux):**
 
 ```bash
-export OPENAI_COMPATIBLE_BASE_URL=http://127.0.0.1:8080/v1
-export OPENAI_COMPATIBLE_API_KEY=my-super-secret-proxy-key-9f8a2c
-export OPENAI_COMPATIBLE_MODEL=ollama-cloud/deepseek-v3.2
+export ANTHROPIC_BASE_URL=http://127.0.0.1:8080
+export ANTHROPIC_API_KEY=my-super-secret-proxy-key-9f8a2c
 ```
 
 Reload the shell:
@@ -643,22 +657,37 @@ exec $SHELL
 
 ### 7-D. Pick a model that matches your configured keys
 
-Set `OPENAI_COMPATIBLE_MODEL` to one of these. The middle column shows
-which `.env` variable that route needs to be populated.
+There are three ways Claude Code can pick a model:
 
-| Use case | Required key in `.env` | Suggested `OPENAI_COMPATIBLE_MODEL` |
+1. **`claude --model <name>`** — set the model for a single CLI run.
+2. **`/model <name>`** — switch models mid-session inside Claude Code.
+3. **`anthropic_default_model` in `config/default.yaml`** — what the
+   gateway substitutes when the requested model starts with `claude-*`
+   but doesn't match any configured route. Default:
+   `ollama-cloud/gemma3:4b`.
+
+Recommended choices (replace the `--model` argument or use
+`/model <name>` inside Claude Code):
+
+| Use case | Required key in `.env` | Suggested model id |
 | --- | --- | --- |
+| Open-source via Hugging Face (good Claude Code defaults) | `HF_TOKEN` | `hf/meta-llama/Llama-3.1-8B-Instruct` |
+| Open-source coding model via HF | `HF_TOKEN` | `hf/Qwen/Qwen2.5-Coder-32B-Instruct` |
+| Larger HF reasoning | `HF_TOKEN` | `hf/deepseek-ai/DeepSeek-R1-Distill-Llama-70B` |
 | Strong coding via Ollama Cloud | `OLLAMA_CLOUD_API_KEY` | `ollama-cloud/deepseek-v3.2` |
 | Fast, cheap chat via Ollama Cloud | `OLLAMA_CLOUD_API_KEY` | `ollama-cloud/gemma3:4b` |
 | Heavy reasoning, very large | `OLLAMA_CLOUD_API_KEY` | `ollama-cloud/deepseek-v3.1:671b` |
 | Vision / multimodal preview | `OLLAMA_CLOUD_API_KEY` | `ollama-cloud/gemini-3-flash-preview` |
-| Open-source via Hugging Face | `HF_TOKEN` | `hf/meta-llama/Llama-3.1-8B-Instruct` |
-| Open-source coding model via HF | `HF_TOKEN` | `hf/Qwen/Qwen2.5-Coder-32B-Instruct` |
 | OpenAI hosted | `OPENAI_API_KEY` | `gpt-4.1-mini` |
 | DeepSeek reasoning | `DEEPSEEK_API_KEY` | `deepseek-reasoner` |
 | Perplexity search-grounded | `PERPLEXITY_API_KEY` | `sonar-pro` |
 | Z.AI multilingual | `ZAI_API_KEY` | `glm-4.6` |
 | Local Ollama (fully offline) | none — needs Ollama installed | `ollama-local/llama3.2` |
+
+> **Tip:** Tool-trained models (Llama 3.1+ instruct, DeepSeek, Qwen2.5-Coder)
+> respond best to Claude Code's tool-heavy system prompt. Small base
+> models (4B and under) sometimes return empty content because they
+> don't know how to use Claude Code's tools.
 
 Discover every model the gateway currently exposes:
 
@@ -727,8 +756,22 @@ way.
 
 If you reach this point, **open Claude Code and start chatting** — every
 request goes through your gateway, your keys never leave your machine, and
-you can swap models on the fly by editing
-`OPENAI_COMPATIBLE_MODEL` and relaunching Claude Code.
+you can swap models on the fly with the `/model <name>` slash command.
+
+#### Optional: a one-line end-to-end smoke test through Claude Code
+
+```powershell
+claude --bare --model "hf/meta-llama/Llama-3.1-8B-Instruct" -p "Reply with: works" --output-format json
+```
+
+```bash
+claude --bare --model "hf/meta-llama/Llama-3.1-8B-Instruct" -p "Reply with: works" --output-format json
+```
+
+A successful run returns a JSON envelope with `"is_error": false`,
+`"stop_reason": "end_turn"`, and a populated `"result"` field — proof
+that Claude Code → gateway → upstream → back through the gateway →
+Claude Code worked end-to-end.
 
 ---
 
@@ -1011,26 +1054,25 @@ the gateway service.
 
 ### 11-A. Use the gateway
 
-Set the three OpenAI-compatible variables, then restart Claude Code:
+Set two Anthropic-native variables, then restart Claude Code:
 
 **Windows PowerShell (persistent):**
 
 ```powershell
 $key = (Select-String -Path .env -Pattern '^GATEWAY_API_KEYS=' | ForEach-Object { $_.Line -replace '^GATEWAY_API_KEYS=', '' })
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_BASE_URL", "http://127.0.0.1:8080/v1",   "User")
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_API_KEY",  $key,                          "User")
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_MODEL",    "ollama-cloud/deepseek-v3.2",  "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080", "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY",  $key,                    "User")
 ```
 
 **macOS / Linux (append to `~/.zshrc` or `~/.bashrc`):**
 
 ```bash
-export OPENAI_COMPATIBLE_BASE_URL=http://127.0.0.1:8080/v1
-export OPENAI_COMPATIBLE_API_KEY=$(grep '^GATEWAY_API_KEYS=' .env | cut -d= -f2)
-export OPENAI_COMPATIBLE_MODEL=ollama-cloud/deepseek-v3.2
+export ANTHROPIC_BASE_URL=http://127.0.0.1:8080
+export ANTHROPIC_API_KEY=$(grep '^GATEWAY_API_KEYS=' .env | cut -d= -f2)
 ```
 
-Reload (`exec $SHELL` on Unix) and relaunch Claude Code.
+Reload (`exec $SHELL` on Unix) and relaunch Claude Code. Pick a model
+with `claude --model <name>` or `/model <name>` inside the session.
 
 ### 11-B. Revert to default Claude Code (Anthropic models)
 
@@ -1038,23 +1080,22 @@ This is the official three-step revert. Use it any time you want
 Claude Code to stop routing through the gateway and go back to
 talking directly to Anthropic.
 
-#### Step 1 — Unset the three user-scoped environment variables
+#### Step 1 — Unset the gateway environment variables
 
 **Windows PowerShell:**
 
 ```powershell
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_BASE_URL", $null, "User")
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_API_KEY",  $null, "User")
-[Environment]::SetEnvironmentVariable("OPENAI_COMPATIBLE_MODEL",    $null, "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", $null, "User")
+[Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY",  $null, "User")
 ```
 
 **macOS / Linux:**
 
-Remove the three `export OPENAI_COMPATIBLE_*` lines from `~/.zshrc`
-(macOS) or `~/.bashrc` (Linux), then clear the current shell:
+Remove the `export ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` lines from
+`~/.zshrc` (macOS) or `~/.bashrc` (Linux), then clear the current shell:
 
 ```bash
-unset OPENAI_COMPATIBLE_BASE_URL OPENAI_COMPATIBLE_API_KEY OPENAI_COMPATIBLE_MODEL
+unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
 exec $SHELL
 ```
 
