@@ -11,7 +11,6 @@ import json
 import sys
 
 import httpx
-
 from _common import resolve_api_key, resolve_base_url, resolve_model
 
 

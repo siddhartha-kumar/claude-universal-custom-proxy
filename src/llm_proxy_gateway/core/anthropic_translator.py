@@ -309,9 +309,11 @@ def _translate_message(role: str, content: Any) -> list[dict[str, Any]]:
                         "type": "function",
                         "function": {
                             "name": name,
-                            "arguments": json.dumps(tool_input)
-                            if isinstance(tool_input, (dict, list))
-                            else "{}",
+                            "arguments": (
+                                json.dumps(tool_input)
+                                if isinstance(tool_input, (dict, list))
+                                else "{}"
+                            ),
                         },
                     }
                 )
