@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-const LABEL = 'local.claude-model-proxy';
+const LABEL = 'local.claude-universal-custom-proxy';
 const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`);
 const userId = typeof process.getuid === 'function' ? process.getuid() : null;
 
@@ -17,4 +17,4 @@ spawnSync('launchctl', ['bootout', `gui/${userId}`, plistPath], { stdio: 'ignore
 await fs.rm(plistPath, { force: true });
 
 console.log(`Uninstalled ${LABEL}`);
-console.log('The environment file was left in place: ~/.claude-model-proxy.env');
+console.log('The environment file was left in place: ~/.claude-universal-custom-proxy.env');

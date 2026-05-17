@@ -1,8 +1,8 @@
 {
   "manifest_version": "0.3",
-  "name": "claude-model-proxy",
-  "display_name": "Claude Model Proxy",
-  "version": "0.4.3",
+  "name": "claude-universal-custom-proxy",
+  "display_name": "Claude Universal Custom Proxy",
+  "version": "0.5.0",
   "description": "Routes Claude Desktop gateway requests to Ollama Cloud, HuggingFace Inference Router, DeepSeek, Moonshot/Kimi, GLM, Xiaomi MiMo, OpenAI, Gemini, Qwen, or Anthropic upstreams. Includes smart fallbacks so Claude Desktop's internal Haiku/Sonnet/Opus calls work without an Anthropic key.",
   "long_description": "Starts a local HTTP proxy for Claude Desktop's gateway feature. Requests are routed by model name: claude-ollama-* aliases use Ollama Cloud (Turbo), claude-hf-* aliases use HuggingFace Inference Router (which auto-routes to Together, Fireworks, HF Inference, Hyperbolic, SambaNova, Novita, Nebius), claude-deepseek-* use DeepSeek, claude-kimi-* uses Moonshot/Kimi, claude-glm-* uses Z.AI, claude-mimo-* uses Xiaomi MiMo, claude-gpt-* uses OpenAI, claude-gemini-* uses Gemini, claude-qwen-* uses Qwen/DashScope, and the original Claude model names use Anthropic Messages. Date-suffixed Claude model names (e.g. claude-haiku-4-5-20251001) that Claude Desktop emits internally are auto-resolved to a configurable Ollama / HuggingFace fallback when ANTHROPIC_API_KEY is empty. Handles /v1/messages, /v1/messages/count_tokens, and /v1/models. The installer asks only for the keys you'll actually use; everything else stays in the optional advanced JSON field.",
   "author": {
@@ -28,6 +28,8 @@
         "OLLAMA_API_KEY": "${user_config.ollama_api_key}",
         "HUGGINGFACE_BASE_URL": "${user_config.huggingface_base_url}",
         "HUGGINGFACE_API_KEY": "${user_config.huggingface_api_key}",
+        "NVIDIA_BASE_URL": "${user_config.nvidia_base_url}",
+        "NVIDIA_API_KEY": "${user_config.nvidia_api_key}",
         "CLAUDE_HAIKU_MODEL": "${user_config.claude_haiku_model}",
         "CLAUDE_SONNET_MODEL": "${user_config.claude_sonnet_model}",
         "CLAUDE_OPUS_MODEL": "${user_config.claude_opus_model}",
@@ -51,8 +53,8 @@
             "tools": {}
           },
           "serverInfo": {
-            "name": "claude-model-proxy",
-            "version": "0.4.3"
+            "name": "claude-universal-custom-proxy",
+            "version": "0.5.0"
           },
           "instructions": "This extension keeps a local model-name proxy running for Claude Desktop gateway requests. Use model_proxy_status to inspect runtime URL, provider key flags, and model routes."
         },
@@ -166,6 +168,20 @@
       "type": "string",
       "title": "HuggingFace API Token",
       "description": "HUGGINGFACE_API_KEY from https://huggingface.co/settings/tokens (read access is enough). Sent only to HuggingFace Router. Leave blank if you aren't using claude-hf-* models.",
+      "sensitive": true,
+      "required": false
+    },
+    "nvidia_base_url": {
+      "type": "string",
+      "title": "NVIDIA NIM Base URL",
+      "description": "NVIDIA NIM OpenAI-compatible endpoint. Default points at the hosted catalog at build.nvidia.com which covers Llama 3.x/4, DeepSeek R1 / V3 / V4, NVIDIA Nemotron, Qwen 2.5 / 3, Mixtral, Codestral, Phi-3.5 / Phi-4, Gemma 2, Granite 3.1, and more.",
+      "default": "https://integrate.api.nvidia.com/v1",
+      "required": false
+    },
+    "nvidia_api_key": {
+      "type": "string",
+      "title": "NVIDIA NIM API Key",
+      "description": "NVIDIA_API_KEY (prefixed nvapi-) from https://build.nvidia.com/. Free tier available. Sent only to NVIDIA NIM. Leave blank if you aren't using claude-nim-* models.",
       "sensitive": true,
       "required": false
     },

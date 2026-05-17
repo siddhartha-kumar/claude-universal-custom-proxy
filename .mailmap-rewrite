@@ -1,1 +1,6 @@
-Siddhartha Kumar <shivsiddhartha187@hotmail.com> wanghao <wanghao9610@xxx>
+# Map any inherited author identities to the canonical noreply form so
+# every commit attributes to siddhartha-kumar on GitHub regardless of
+# which clone or upstream the patch originated in.
+Siddhartha Kumar <50151499+siddhartha-kumar@users.noreply.github.com> Siddhartha Kumar <shivsiddhartha187@hotmail.com>
+Siddhartha Kumar <50151499+siddhartha-kumar@users.noreply.github.com> Siddhartha Kumar <siddhartha.kumar@example.com>
+Siddhartha Kumar <50151499+siddhartha-kumar@users.noreply.github.com> wanghao <wanghao9610@xxx>

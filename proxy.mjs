@@ -13,8 +13,8 @@ import { fileURLToPath } from 'node:url';
 // Service identity — kept in lockstep with package.json / manifest.json /
 // server/index.mjs by the manifest test.
 // ─────────────────────────────────────────────────────────────────────────────
-export const SERVER_NAME = 'claude-model-proxy';
-export const SERVER_VERSION = '0.4.3';
+export const SERVER_NAME = 'claude-universal-custom-proxy';
+export const SERVER_VERSION = '0.5.0';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Debug logging — gated by DEBUG_PROXY=true (default off)
@@ -794,7 +794,7 @@ export function createProxyServer(config = loadConfig()) {
       });
     } catch (error) {
       const statusCode = error.statusCode || 500;
-      console.error(`[claude-model-proxy] ${statusCode} ${error.message}`);
+      console.error(`[claude-universal-custom-proxy] ${statusCode} ${error.message}`);
       sendJson(clientRes, statusCode, {
         error: String(error.message || error),
       });
@@ -1049,7 +1049,7 @@ function forwardRequest({
   );
 
   upstreamReq.on('error', (error) => {
-    console.error(`[claude-model-proxy] upstream error: ${error.message}`);
+    console.error(`[claude-universal-custom-proxy] upstream error: ${error.message}`);
     if (!clientRes.headersSent) {
       sendJson(clientRes, 502, {
         error: `Upstream request failed: ${error.message}`,
@@ -1749,7 +1749,7 @@ function parseStringMap(raw, name) {
       const parsed = JSON.parse(trimmed);
       return normalizeStringMap(parsed, name);
     } catch (error) {
-      console.error(`\n[claude-model-proxy] ERROR: ${name} is not valid JSON.`);
+      console.error(`\n[claude-universal-custom-proxy] ERROR: ${name} is not valid JSON.`);
       console.error(`  Raw value (first 300 chars): ${String(raw).slice(0, 300)}`);
       console.error(`  JSON error: ${error.message}\n`);
       throw new Error(`${name} contains invalid JSON`);
@@ -1965,10 +1965,10 @@ if (isMain) {
 
     server.on('error', (error) => {
       if (error.code === 'EADDRINUSE') {
-        console.error(`[claude-model-proxy] port ${config.port} is already in use`);
+        console.error(`[claude-universal-custom-proxy] port ${config.port} is already in use`);
         process.exit(0);
       }
-      console.error(`[claude-model-proxy] failed: ${error.message}`);
+      console.error(`[claude-universal-custom-proxy] failed: ${error.message}`);
       process.exit(1);
     });
 
@@ -1998,7 +1998,7 @@ if (isMain) {
       console.log('========================================');
     });
   } catch (error) {
-    console.error(`[claude-model-proxy] startup failed: ${error.message}`);
+    console.error(`[claude-universal-custom-proxy] startup failed: ${error.message}`);
     process.exit(1);
   }
 }

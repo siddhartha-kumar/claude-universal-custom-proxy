@@ -6,12 +6,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const LABEL = 'local.claude-model-proxy';
+const LABEL = 'local.claude-universal-custom-proxy';
 const homeDir = os.homedir();
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const plistPath = path.join(homeDir, 'Library', 'LaunchAgents', `${LABEL}.plist`);
 const logDir = path.join(homeDir, 'Library', 'Logs', 'ClaudeModelProxy');
-const envFile = path.join(homeDir, '.claude-model-proxy.env');
+const envFile = path.join(homeDir, '.claude-universal-custom-proxy.env');
 const runScript = path.join(rootDir, 'scripts', 'run-launch-agent.sh');
 const userId = typeof process.getuid === 'function' ? process.getuid() : null;
 
@@ -32,7 +32,7 @@ console.log(`Installed ${LABEL}`);
 console.log(`LaunchAgent: ${plistPath}`);
 console.log(`Environment file: ${envFile}`);
 console.log('Update the environment file with provider API keys, then run:');
-console.log('  launchctl kickstart -k gui/$(id -u)/local.claude-model-proxy');
+console.log('  launchctl kickstart -k gui/$(id -u)/local.claude-universal-custom-proxy');
 
 async function ensureEnvFile() {
   try {

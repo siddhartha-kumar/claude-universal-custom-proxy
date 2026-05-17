@@ -12,11 +12,11 @@ should upgrade.
 
 ## Reporting a Vulnerability
 
-If you believe you've found a security vulnerability in `claude-model-proxy`,
+If you believe you've found a security vulnerability in `claude-universal-custom-proxy`,
 please **do not open a public GitHub issue**. Instead:
 
 1. Email the maintainer at **shivsiddhartha187@hotmail.com** with the subject
-   line `SECURITY: claude-model-proxy`.
+   line `SECURITY: claude-universal-custom-proxy`.
 2. Include:
    - A description of the vulnerability and its impact.
    - Reproduction steps or a proof-of-concept (ideally a minimal failing

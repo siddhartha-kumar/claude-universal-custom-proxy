@@ -4,11 +4,11 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -P -- "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/scripts/ensure-node.sh"
 
-APP_NAME=claude-model-proxy
-PID_FILE="${CLAUDE_MODEL_PROXY_PID_FILE:-$SCRIPT_DIR/claude-model-proxy.pid}"
-LOG_FILE="${CLAUDE_MODEL_PROXY_LOG_FILE:-$SCRIPT_DIR/claude-model-proxy.log}"
-STARTUP_WAIT_SECONDS="${CLAUDE_MODEL_PROXY_STARTUP_WAIT_SECONDS:-1}"
-STOP_TIMEOUT_SECONDS="${CLAUDE_MODEL_PROXY_STOP_TIMEOUT_SECONDS:-10}"
+APP_NAME=claude-universal-custom-proxy
+PID_FILE="${CLAUDE_UNIVERSAL_CUSTOM_PROXY_PID_FILE:-$SCRIPT_DIR/claude-universal-custom-proxy.pid}"
+LOG_FILE="${CLAUDE_UNIVERSAL_CUSTOM_PROXY_LOG_FILE:-$SCRIPT_DIR/claude-universal-custom-proxy.log}"
+STARTUP_WAIT_SECONDS="${CLAUDE_UNIVERSAL_CUSTOM_PROXY_STARTUP_WAIT_SECONDS:-1}"
+STOP_TIMEOUT_SECONDS="${CLAUDE_UNIVERSAL_CUSTOM_PROXY_STOP_TIMEOUT_SECONDS:-10}"
 COMMAND="${1:-start}"
 
 case "$STARTUP_WAIT_SECONDS" in
@@ -23,7 +23,7 @@ case "$STOP_TIMEOUT_SECONDS" in
     ;;
 esac
 
-if [ "${CLAUDE_MODEL_PROXY_FOREGROUND:-0}" = "1" ] && [ "$COMMAND" = "start" ]; then
+if [ "${CLAUDE_UNIVERSAL_CUSTOM_PROXY_FOREGROUND:-0}" = "1" ] && [ "$COMMAND" = "start" ]; then
   COMMAND=foreground
 fi
 
@@ -32,11 +32,11 @@ usage() {
 Usage: $0 [start|stop|restart|status|foreground]
 
 Environment:
-  CLAUDE_MODEL_PROXY_PID_FILE             PID file path (default: $PID_FILE)
-  CLAUDE_MODEL_PROXY_LOG_FILE             Log file path (default: $LOG_FILE)
-  CLAUDE_MODEL_PROXY_FOREGROUND=1         Run in foreground when no command is given
-  CLAUDE_MODEL_PROXY_STARTUP_WAIT_SECONDS Seconds to check for immediate startup failure
-  CLAUDE_MODEL_PROXY_STOP_TIMEOUT_SECONDS Seconds to wait for graceful stop
+  CLAUDE_UNIVERSAL_CUSTOM_PROXY_PID_FILE             PID file path (default: $PID_FILE)
+  CLAUDE_UNIVERSAL_CUSTOM_PROXY_LOG_FILE             Log file path (default: $LOG_FILE)
+  CLAUDE_UNIVERSAL_CUSTOM_PROXY_FOREGROUND=1         Run in foreground when no command is given
+  CLAUDE_UNIVERSAL_CUSTOM_PROXY_STARTUP_WAIT_SECONDS Seconds to check for immediate startup failure
+  CLAUDE_UNIVERSAL_CUSTOM_PROXY_STOP_TIMEOUT_SECONDS Seconds to wait for graceful stop
 EOF
 }
 

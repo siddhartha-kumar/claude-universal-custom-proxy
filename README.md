@@ -1,14 +1,16 @@
 <div align="center">
 
-# Claude Model Proxy
+# Claude Universal Custom Proxy
 
-**A local OpenAI- and Anthropic-compatible gateway that maps Claude-style
-model names onto the upstream of your choice.**
+**A local Anthropic-compatible gateway that maps Claude-style model names
+onto the upstream of your choice — Ollama Cloud, Hugging Face Router,
+NVIDIA NIM, and seven more providers.**
 
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A518-43853d?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
 [![Signed commits](https://img.shields.io/badge/commits-signed%20(SSH)-success?logo=git)](#security)
-[![Tests](https://img.shields.io/badge/tests-81%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-34%20passing-brightgreen)](#testing)
+[![Models](https://img.shields.io/badge/catalog-116%20models-success)](#model-catalog)
 [![MCPB](https://img.shields.io/badge/Claude%20Desktop-MCPB%20extension-7c3aed)](#claude-desktop-extension)
 
 </div>
@@ -17,10 +19,11 @@ model names onto the upstream of your choice.**
 
 ## Overview
 
-Claude Model Proxy is a lightweight (~1 800 LOC, zero runtime dependencies
-beyond `dotenv`) HTTP service that lets **Claude Desktop's Gateway / third-party
-inference** feature talk to any of the following upstreams from a single local
-endpoint, selected per request by model name:
+Claude Universal Custom Proxy is a lightweight (~1,900 LOC, zero runtime
+dependencies beyond `dotenv`) HTTP service that lets **Claude Desktop's
+Gateway / third-party inference** feature and **Claude Code CLI**
+(`ANTHROPIC_BASE_URL` mode) talk to any of the following upstreams from a
+single local endpoint, selected per request by model name:
 
 | Provider | Format | Default base URL |
 | --- | --- | --- |
@@ -95,7 +98,7 @@ standalone Node service for CI, headless servers, or Claude Code CLI use.
 
 ```
 ┌──────────────────────┐         ┌──────────────────────────┐
-│   Claude Desktop /   │ HTTPS   │  claude-model-proxy      │
+│   Claude Desktop /   │ HTTPS   │  claude-universal-custom-proxy      │
 │   Claude Code CLI    │ ──────▶ │  127.0.0.1:8787          │
 │  (Anthropic shape)   │         │                          │
 └──────────────────────┘         │  ┌────────────────────┐  │
@@ -136,13 +139,13 @@ Anthropic-shaped while you choose any upstream at runtime by model name.
 ### Claude Desktop (MCPB)
 
 ```sh
-git clone git@github.com:siddhartha-kumar/claude-model-proxy.git
-cd claude-model-proxy
+git clone git@github.com:siddhartha-kumar/claude-universal-custom-proxy.git
+cd claude-universal-custom-proxy
 npm install
 npm run build:mcpb
 ```
 
-Output: `dist/claude-model-proxy-0.4.3.mcpb`.
+Output: `dist/claude-universal-custom-proxy-0.5.0.mcpb`.
 
 1. **Enable Developer Mode** in Claude Desktop (Settings → General, or Help
    menu — varies by build; restart the app afterwards).
@@ -173,7 +176,7 @@ Output: `dist/claude-model-proxy-0.4.3.mcpb`.
    | --- | --- |
    | Provider | `Gateway` |
    | Gateway base URL | `http://127.0.0.1:8787` |
-   | Gateway API key | any non-empty placeholder (e.g. `dummy-claude-model-proxy`) |
+   | Gateway API key | any non-empty placeholder (e.g. `dummy-claude-universal-custom-proxy`) |
    | Gateway auth scheme | `bearer` |
    | Model list | *Fetch from gateway* — auto-populates 62 aliases |
 
@@ -306,13 +309,19 @@ single blob with the same keys:
 
 ## Model Catalog
 
-The default catalog ships with 62 aliases across all providers (HuggingFace
-Router aliases were temporarily removed in v0.4.3 — see CHANGELOG). The
+The default catalog ships with **116 aliases** across all providers. The
 canonical, live source of truth is always:
 
 ```sh
 curl http://127.0.0.1:8787/v1/models
 ```
+
+| Prefix | Count | Backend |
+| --- | :---: | --- |
+| `claude-nim-*` | 36 | NVIDIA NIM (build.nvidia.com — free tier) |
+| `claude-ollama-*` | 30 | Ollama Cloud (Turbo) |
+| `claude-hf-*` | 18 | Hugging Face Inference Router |
+| `claude-deepseek-*`, `claude-kimi-*`, `claude-glm-*`, `claude-mimo-*`, `claude-gpt-*`, `claude-gemini-*`, `claude-qwen-*`, native `claude-haiku-*`/`-sonnet-*`/`-opus-*` | 32 | Native upstream (DeepSeek, Moonshot, Z.AI, Xiaomi, OpenAI, Gemini, DashScope, Anthropic) |
 
 A condensed summary by provider follows.
 
@@ -383,28 +392,43 @@ A condensed summary by provider follows.
 > **Important.** Ollama Cloud requires the `-cloud` (sized) or `:cloud`
 > (unsized) routing tag; bare ids hit local-only weights and 404.
 
-### HuggingFace Inference Router — not bundled in v0.4.3
+### Hugging Face Inference Router — 18 aliases
 
-The 22 `claude-hf-*` aliases that shipped in v0.3.0–v0.4.2 were removed in
-v0.4.3 as an empirical test: we're verifying whether Claude Desktop's
-gateway picker has a catalog-count threshold above which it falls back to a
-hardcoded "Claude tier" list. The default catalog is back to the 62 models
-that worked at commit 6315023.
+The HF Router (`https://router.huggingface.co/v1`) auto-routes each call
+to whichever underlying provider (Together, Fireworks, HF Inference,
+Hyperbolic, SambaNova, Novita, Nebius) currently has the model live and
+cheapest. One `HF_TOKEN` (or `HUGGINGFACE_API_KEY`) gives you access to
+all of them.
 
-The `huggingface` provider configuration is still wired up — only the
-bundled aliases are gone. Add HF models per-installation via env overrides:
+| Alias | Upstream id |
+| --- | --- |
+| `claude-hf-llama-3.1-8b`, `claude-hf-llama-3.1-70b`, `claude-hf-llama-3.3-70b` | `meta-llama/Llama-3.1-*-Instruct`, `Llama-3.3-70B-Instruct` |
+| `claude-hf-llama-4-maverick`, `claude-hf-llama-4-scout` | `meta-llama/Llama-4-Maverick-17B-128E`, `Llama-4-Scout-17B-16E` |
+| `claude-hf-qwen-2.5-coder-32b`, `claude-hf-qwen-2.5-72b` | `Qwen/Qwen2.5-Coder-32B`, `Qwen/Qwen2.5-72B` |
+| `claude-hf-qwen3-coder-480b`, `claude-hf-qwen3-next-80b` | `Qwen/Qwen3-Coder-480B-A35B`, `Qwen3-Next-80B-A3B` |
+| `claude-hf-deepseek-r1`, `claude-hf-deepseek-v3.1`, `claude-hf-deepseek-v3.2` | `deepseek-ai/DeepSeek-R1`, `DeepSeek-V3.1`, `DeepSeek-V3.2` |
+| `claude-hf-deepseek-r1-distill-70b` | `deepseek-ai/DeepSeek-R1-Distill-Llama-70B` |
+| `claude-hf-glm-4.6`, `claude-hf-glm-5` | `zai-org/GLM-4.6`, `zai-org/GLM-5` |
+| `claude-hf-gpt-oss-20b`, `claude-hf-gpt-oss-120b` | `openai/gpt-oss-20b`, `openai/gpt-oss-120b` |
+| `claude-hf-kimi-k2.6` | `moonshotai/Kimi-K2.6` |
 
-```bash
-# Single HF model
-MODEL_MAP='{"claude-hf-deepseek-r1":"deepseek-ai/DeepSeek-R1"}'
-MODEL_ROUTES='{"claude-hf-deepseek-r1":"huggingface"}'
-HUGGINGFACE_API_KEY=hf_xxx   # or HF_API_KEY / HF_TOKEN
-```
+### NVIDIA NIM — 36 aliases (free at build.nvidia.com)
 
-HF Router (https://router.huggingface.co/v1) auto-routes each call to
-whichever underlying provider (Together, Fireworks, HF Inference, Hyperbolic,
-SambaNova, Novita, Nebius) currently has the model live and cheapest. One
-token gives you access to all of them.
+Sign up at [build.nvidia.com](https://build.nvidia.com/), generate a key
+(prefixed `nvapi-`), and set `NVIDIA_API_KEY` (or `NVAPI_KEY` /
+`NIM_API_KEY`). Free tier covers all 36 aliases.
+
+| Family | Aliases |
+| --- | --- |
+| Meta Llama | `claude-nim-llama-3.1-8b`, `-3.1-70b`, `-3.1-405b`, `-3.3-70b`, `-4-maverick`, `-4-scout` |
+| NVIDIA Nemotron | `claude-nim-nemotron-nano-8b`, `-super-49b`, `-70b`, `-340b`, `claude-nim-usdcode-70b` |
+| DeepSeek | `claude-nim-deepseek-r1`, `-r1-distill-70b`, `-r1-distill-8b`, `-v3.1`, `-v3.2`, `-v4-flash`, `-v4-pro` |
+| Qwen | `claude-nim-qwen-2.5-coder-32b`, `-coder-7b`, `-2.5-72b`, `-3-235b`, `claude-nim-qwq-32b` |
+| Mistral AI | `claude-nim-mixtral-8x7b`, `-8x22b`, `claude-nim-mistral-7b`, `-nemo-12b`, `claude-nim-codestral-22b` |
+| Microsoft Phi | `claude-nim-phi-3-medium`, `-3.5-mini`, `claude-nim-phi-4` |
+| Google Gemma | `claude-nim-gemma-2-9b`, `claude-nim-gemma-2-27b` |
+| IBM Granite | `claude-nim-granite-3-8b` |
+| Other | `claude-nim-palmyra-creative-122b`, `claude-nim-yi-large` |
 
 ### Conflict resolution
 
@@ -422,7 +446,7 @@ The proxy implements the Anthropic Messages REST surface:
 | --- | --- | --- | --- |
 | `GET` / `HEAD` | `/` | local | Service identity probe — returns `{service, version, ok, endpoints, baseUrl, modelCount}`. Used by Claude Desktop / Bun-based agent SDKs for connectivity checks. |
 | `GET` | `/healthz` | local | Full proxy state, provider key flags, fallback table. |
-| `GET` | `/v1/models` | local | Anthropic-compatible catalog (62 default aliases in v0.4.3 — see CHANGELOG). Always returns the full list with `has_more: false`; `?limit`/`?after_id`/`?before_id` are accepted but ignored. |
+| `GET` | `/v1/models` | local | Anthropic-compatible catalog (116 default aliases — see CHANGELOG). Always returns the full list with `has_more: false`; `?limit`/`?after_id`/`?before_id` are accepted but ignored. |
 | `GET` | `/v1/models/{id}` | local | Single-model lookup; 404 returns the `{type:"error", error:{type:"not_found_error", ...}}` envelope. |
 | `POST` | `/v1/messages` | forwarded | Resolved per request body's `model`. |
 | `POST` | `/v1/messages/count_tokens` | local | Deterministic character heuristic, returns `{"input_tokens": <n>}`. |
@@ -432,7 +456,7 @@ The proxy implements the Anthropic Messages REST surface:
 Claude Desktop's **Cowork 3P** picker reads its model list from `/v1/models`.
 Since v0.4.1 the proxy always returns the full catalog in a single response
 (no pagination), so the picker shows every alias the proxy knows about — all
-62 by default in v0.4.3. Pick any `claude-haiku-*`, `claude-sonnet-*`,
+116 by default in v0.5.0. Pick any `claude-haiku-*`, `claude-sonnet-*`,
 `claude-opus-*`, `claude-ollama-*`, `claude-deepseek-*`, `claude-glm-*`,
 `claude-mimo-*`, `claude-kimi-*`, `claude-gpt-*`, `claude-gemini-*`, or
 `claude-qwen-*` entry from the dropdown.
@@ -450,7 +474,7 @@ Claude Code (the official CLI) speaks the Anthropic Messages API and accepts
 
 ```sh
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8787
-export ANTHROPIC_API_KEY=dummy-claude-model-proxy
+export ANTHROPIC_API_KEY=dummy-claude-universal-custom-proxy
 export ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-ollama-qwen3-coder-next
 export ANTHROPIC_DEFAULT_SONNET_MODEL=claude-ollama-qwen3-coder
 export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-ollama-gpt-oss-120b
@@ -473,8 +497,8 @@ A LaunchAgent pre-warms the proxy so it's already listening:
 
 ```sh
 npm run launch-agent:install
-# Edit ~/.claude-model-proxy.env with the same keys you'd put in .env.
-launchctl kickstart -k gui/$(id -u)/local.claude-model-proxy
+# Edit ~/.claude-universal-custom-proxy.env with the same keys you'd put in .env.
+launchctl kickstart -k gui/$(id -u)/local.claude-universal-custom-proxy
 curl http://127.0.0.1:8787/healthz
 ```
 
@@ -639,7 +663,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ```
 .
-├── manifest.json              # MCPB extension manifest (v0.4.3)
+├── manifest.json              # MCPB extension manifest (v0.5.0)
 ├── proxy.mjs                  # HTTP gateway proxy and provider adapters
 ├── server/index.mjs           # MCP stdio server hosting the proxy
 ├── scripts/                   # Build, LaunchAgent, and Node helper scripts

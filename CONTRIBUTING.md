@@ -1,4 +1,4 @@
-# Contributing to claude-model-proxy
+# Contributing to claude-universal-custom-proxy
 
 Thanks for considering a contribution. This project follows a small set of
 conventions that keep the codebase stable and the `main` branch enterprise-
@@ -58,7 +58,7 @@ npm test                    # 48 cases
 node --check proxy.mjs      # syntax check
 node --check server/index.mjs
 node --check test/proxy.test.mjs
-npm run build:mcpb          # produces dist/claude-model-proxy-<version>.mcpb
+npm run build:mcpb          # produces dist/claude-universal-custom-proxy-<version>.mcpb
 ```
 
 Optional smoke test against the running proxy:

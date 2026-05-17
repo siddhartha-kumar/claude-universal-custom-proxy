@@ -5,6 +5,53 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-05-17
+
+### Renamed
+
+- Project renamed to **`claude-universal-custom-proxy`** across
+  `package.json`, `manifest.json`, the MCPB extension display name, the
+  `SERVER_NAME` constant, all log prefixes, and the README. The Python
+  ASGI predecessor under the same GitHub repo is preserved on the
+  `python-archive` branch and the `v0.1.0-python` tag.
+
+### Added
+
+- **NVIDIA NIM provider** wired up at
+  `https://integrate.api.nvidia.com/v1` with `NVIDIA_API_KEY` (and
+  `NVAPI_KEY` / `NIM_API_KEY` aliases). Sign up free at
+  [build.nvidia.com](https://build.nvidia.com/).
+- **36 `claude-nim-*` aliases** spanning Meta Llama 3.1 / 3.3 / 4
+  (Maverick + Scout), NVIDIA Nemotron Nano / Super / 70B / 340B,
+  DeepSeek R1 / R1-distill / V3.1 / V3.2 / V4 (Flash + Pro), Qwen 2.5
+  Coder / 2.5 / 3, QwQ-32B, Mixtral 8x7B / 8x22B, Codestral 22B,
+  Mistral 7B / Nemo 12B, Phi-3 medium / Phi-3.5 mini / Phi-4,
+  Gemma 2 9B / 27B, IBM Granite 3.1 8B, Palmyra Creative 122B,
+  Yi-Large, NVIDIA USDCode Llama 3.1 70B.
+- **`nvidia_base_url` and `nvidia_api_key` fields in the MCPB install
+  dialog** so a single MCPB install can wire NVIDIA NIM alongside
+  Ollama Cloud and Hugging Face.
+- **Integration tests** for the new provider: bundled-alias routing
+  end-to-end, and `NVAPI_KEY` / `NIM_API_KEY` env-alias resolution.
+  Full suite is now 34/34 on Node 20.
+
+### Restored
+
+- **18 `claude-hf-*` aliases bundled by default** (had been
+  empirically trimmed in v0.4.3). Together with the existing 30
+  `claude-ollama-*` aliases and the new 36 `claude-nim-*` aliases,
+  the default `/v1/models` catalog ships **116 models**.
+
+### Changed
+
+- `claude_haiku_model`, `claude_sonnet_model`, `claude_opus_model`
+  fallback defaults are now `claude-hf-llama-3.1-8b`,
+  `claude-hf-qwen-2.5-coder-32b`, `claude-hf-qwen3-coder-480b`
+  respectively — a tool-trained HF lineup that handles Claude
+  Desktop's elaborate system prompt cleanly.
+- README catalog section rewritten to enumerate all 116 aliases
+  grouped by family.
+
 ## [0.4.3] — 2026-05-16
 
 ### Reverted (empirical trim)

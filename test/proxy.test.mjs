@@ -803,6 +803,8 @@ test('manifest exposes provider keys plus Claude family fallback overrides', () 
     'ollama_api_key',
     'huggingface_base_url',
     'huggingface_api_key',
+    'nvidia_base_url',
+    'nvidia_api_key',
     'claude_haiku_model',
     'claude_sonnet_model',
     'claude_opus_model',
@@ -824,6 +826,8 @@ test('manifest exposes provider keys plus Claude family fallback overrides', () 
     'OLLAMA_API_KEY',
     'HUGGINGFACE_BASE_URL',
     'HUGGINGFACE_API_KEY',
+    'NVIDIA_BASE_URL',
+    'NVIDIA_API_KEY',
     'CLAUDE_HAIKU_MODEL',
     'CLAUDE_SONNET_MODEL',
     'CLAUDE_OPUS_MODEL',
@@ -839,7 +843,7 @@ test('manifest exposes provider keys plus Claude family fallback overrides', () 
 
   const staticResponses = manifest._meta['com.microsoft.windows'].static_responses;
   assert.deepEqual(staticResponses.initialize.capabilities, { tools: {} });
-  assert.equal(staticResponses.initialize.serverInfo.name, 'claude-model-proxy');
+  assert.equal(staticResponses.initialize.serverInfo.name, 'claude-universal-custom-proxy');
   assert.equal(staticResponses.initialize.serverInfo.version, manifest.version);
   assert.deepEqual(staticResponses['tools/list'].tools, [
     {
@@ -1486,7 +1490,7 @@ test('/v1/models exposes claude-hf-* and claude-nim-* aliases by default', async
   assert.ok(hfIds.length >= 15, `expected at least 15 claude-hf-* aliases, got ${hfIds.length}`);
   assert.ok(nimIds.length >= 30, `expected at least 30 claude-nim-* aliases, got ${nimIds.length}`);
   assert.ok(ollamaIds.length >= 25, `expected at least 25 claude-ollama-* aliases, got ${ollamaIds.length}`);
-  // Total catalog should comfortably exceed the v0.4.3 baseline of 62.
+  // Total catalog should comfortably exceed the v0.4.3 baseline of 62 (now 116 in v0.5.0).
   assert.ok(response.body.data.length >= 110, `default catalog size should be >= 110, got ${response.body.data.length}`);
 });
 
