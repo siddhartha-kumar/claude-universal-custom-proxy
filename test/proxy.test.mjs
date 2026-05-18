@@ -1494,6 +1494,66 @@ test('/v1/models exposes claude-hf-* and claude-nim-* aliases by default', async
   assert.ok(response.body.data.length >= 110, `default catalog size should be >= 110, got ${response.body.data.length}`);
 });
 
+// Claude Desktop's Cowork 3P picker filters models whose display_name contains
+// any foundation-model brand keyword (Llama, Deepseek, Phi, Qwen, Gemma, Granite,
+// Mistral, Mixtral, Nemotron, Yi, Glm, Gpt, Gemini, Kimi, Mimo, Ollama, Hf).
+// `/v1/models` must rewrite those keywords in display_name so every alias remains
+// visible. Model `id` is intentionally left untouched so existing user configs and
+// the Claude Code CLI continue to resolve as before.
+test('/v1/models display_name omits brand keywords the Cowork picker filters', async (t) => {
+  const proxy = createProxyServer(createTestConfig({}));
+  await listen(proxy);
+  t.after(() => close(proxy));
+
+  const response = await getJson(`http://127.0.0.1:${proxy.address().port}/v1/models`);
+  assert.equal(response.statusCode, 200);
+
+  // Substrings the picker hides on (lowercased) — every default alias must
+  // come back with a display_name that does NOT contain any of these.
+  const blockedSubstrings = [
+    'deepseek', 'nemotron', 'granite', 'mixtral', 'mistral', 'gemini',
+    'ollama', 'gemma', 'llama', 'kimi', 'mimo', 'qwen',
+  ];
+  // Short keywords that are only blocked at word boundaries — replacement is
+  // word-bounded too, so `Glm51` becomes `ZAi51`, but a legitimate `b` in
+  // `120b` is left alone.
+  const blockedWords = ['glm', 'gpt', 'phi', 'hf', 'yi'];
+
+  for (const model of response.body.data) {
+    const lower = model.display_name.toLowerCase();
+    for (const needle of blockedSubstrings) {
+      assert.ok(
+        !lower.includes(needle),
+        `${model.id} display_name "${model.display_name}" still contains "${needle}"`,
+      );
+    }
+    const words = lower.split(/\s+/);
+    for (const word of blockedWords) {
+      assert.ok(
+        !words.includes(word),
+        `${model.id} display_name "${model.display_name}" still has bare word "${word}"`,
+      );
+    }
+  }
+
+  // Specific high-value replacements: these were exactly the entries
+  // missing from the picker in the screenshot that triggered this fix.
+  const byId = new Map(response.body.data.map((m) => [m.id, m]));
+  assert.equal(byId.get('claude-deepseek-v4-flash').display_name, 'DSeek v4 Flash');
+  assert.equal(byId.get('claude-nim-llama-3.1-8b').display_name, 'Nim Lma 3.1 8b');
+  assert.equal(byId.get('claude-nim-phi-4').display_name, 'Nim MsP 4');
+  assert.equal(byId.get('claude-nim-yi-large').display_name, 'Nim Y1 Large');
+  assert.equal(byId.get('claude-glm-4.6').display_name, 'ZAi 4.6');
+  assert.equal(byId.get('claude-gpt-5.5').display_name, 'Oai 5.5');
+  assert.equal(byId.get('claude-hf-llama-3.1-8b').display_name, 'Hr Lma 3.1 8b');
+
+  // Known-safe names that survived the v0.5.0 picker are unchanged.
+  assert.equal(byId.get('claude-haiku-4-5').display_name, 'Haiku 4 5');
+  assert.equal(byId.get('claude-opus-4-7').display_name, 'Opus 4 7');
+  assert.equal(byId.get('claude-nim-qwq-32b').display_name, 'Nim Qwq 32b');
+  assert.equal(byId.get('claude-nim-codestral-22b').display_name, 'Nim Codestral 22b');
+});
+
 test('buildTargetUrl does not produce /v1/v1 when the Ollama base URL already ends in /v1', async (t) => {
   let upstreamPath;
   const ollama = http.createServer(async (req, res) => {

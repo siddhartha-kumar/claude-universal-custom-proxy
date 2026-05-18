@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "claude-universal-custom-proxy",
   "display_name": "Claude Universal Custom Proxy",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Routes Claude Desktop gateway requests to Ollama Cloud, HuggingFace Inference Router, DeepSeek, Moonshot/Kimi, GLM, Xiaomi MiMo, OpenAI, Gemini, Qwen, or Anthropic upstreams. Includes smart fallbacks so Claude Desktop's internal Haiku/Sonnet/Opus calls work without an Anthropic key.",
   "long_description": "Starts a local HTTP proxy for Claude Desktop's gateway feature. Requests are routed by model name: claude-ollama-* aliases use Ollama Cloud (Turbo), claude-hf-* aliases use HuggingFace Inference Router (which auto-routes to Together, Fireworks, HF Inference, Hyperbolic, SambaNova, Novita, Nebius), claude-deepseek-* use DeepSeek, claude-kimi-* uses Moonshot/Kimi, claude-glm-* uses Z.AI, claude-mimo-* uses Xiaomi MiMo, claude-gpt-* uses OpenAI, claude-gemini-* uses Gemini, claude-qwen-* uses Qwen/DashScope, and the original Claude model names use Anthropic Messages. Date-suffixed Claude model names (e.g. claude-haiku-4-5-20251001) that Claude Desktop emits internally are auto-resolved to a configurable Ollama / HuggingFace fallback when ANTHROPIC_API_KEY is empty. Handles /v1/messages, /v1/messages/count_tokens, and /v1/models. The installer asks only for the keys you'll actually use; everything else stays in the optional advanced JSON field.",
   "author": {
@@ -54,7 +54,7 @@
           },
           "serverInfo": {
             "name": "claude-universal-custom-proxy",
-            "version": "0.5.0"
+            "version": "0.5.1"
           },
           "instructions": "This extension keeps a local model-name proxy running for Claude Desktop gateway requests. Use model_proxy_status to inspect runtime URL, provider key flags, and model routes."
         },

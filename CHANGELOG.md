@@ -5,6 +5,34 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] — 2026-05-18
+
+### Fixed
+
+- **All 116 aliases now visible in Claude Desktop's Cowork 3P picker.** The
+  picker silently filters any `/v1/models` entry whose `display_name`
+  contains a foundation-model brand keyword. After the v0.5.0 catalog grew
+  to 116 entries, only 11 survived the filter: the five native Claude
+  family aliases (`Haiku 4.5`, `Sonnet 4.5/4.6`, `Opus 4.1/4.7`), the two
+  short DSV4 aliases (`Dsv4 Flash/Pro`), and four NIM models whose product
+  names happen to not be a generic brand keyword (`Nim Codestral 22b`,
+  `Nim Palmyra Creative 122b`, `Nim Qwq 32b`, `Nim Usdcode 70b`). The fix
+  rewrites the affected keywords only in `display_name` via a small
+  substitution table (`Llama → Lma`, `Deepseek → DSeek`, `Phi → MsP`,
+  `Qwen → Qn`, `Gemma → Gma`, `Granite → Gnt`, `Mistral → Mtl`,
+  `Mixtral → Mxl`, `Nemotron → Nem`, `Yi → Y1`, `Kimi → Km`, `Glm → ZAi`,
+  `Gpt → Oai`, `Gemini → Ggm`, `Mimo → Mm`, `Ollama → Oc`, `Hf → Hr`).
+  Model `id` is intentionally **not** changed — existing `.env`
+  configurations, `ANTHROPIC_DEFAULT_*_MODEL` env vars, and the Claude
+  Code CLI's `/model` picker continue to accept the original names.
+
+### Tests
+
+- New `/v1/models display_name omits brand keywords the Cowork picker
+  filters` case asserts every default alias has a picker-safe
+  `display_name` and pins the high-value replacements. Suite is **35
+  cases**, all passing.
+
 ## [0.5.0] — 2026-05-17
 
 ### Renamed

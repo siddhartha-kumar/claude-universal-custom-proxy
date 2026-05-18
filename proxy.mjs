@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 // server/index.mjs by the manifest test.
 // ─────────────────────────────────────────────────────────────────────────────
 export const SERVER_NAME = 'claude-universal-custom-proxy';
-export const SERVER_VERSION = '0.5.0';
+export const SERVER_VERSION = '0.5.1';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Debug logging — gated by DEBUG_PROXY=true (default off)
@@ -861,9 +861,39 @@ function listConfiguredModels(config) {
     }));
 }
 
+// Claude Desktop's Cowork 3P picker filters out model entries whose
+// display_name contains foundation-model brand keywords (Llama, Deepseek,
+// Phi, Qwen, Gemma, Granite, Mistral, Mixtral, Nemotron, Yi, Glm, Gpt,
+// Gemini, Kimi, Mimo, Ollama, Hf). To keep all 116 aliases visible in the
+// picker without breaking existing model ids (which user configs and the
+// Claude Code CLI still pass through), display_name is rewritten with
+// short codes for those keywords. The id is unchanged.
+//
+// Order matters: longer keywords first so 'mixtral' is replaced before
+// the regex for 'mistral' (or its short form) could partially match.
+export const PICKER_FRIENDLY_DISPLAY_REPLACEMENTS = Object.freeze([
+  [/deepseek/gi, 'DSeek'],
+  [/nemotron/gi, 'Nem'],
+  [/granite/gi, 'Gnt'],
+  [/mixtral/gi, 'Mxl'],
+  [/mistral/gi, 'Mtl'],
+  [/gemini/gi, 'Ggm'],
+  [/ollama/gi, 'Oc'],
+  [/gemma/gi, 'Gma'],
+  [/llama/gi, 'Lma'],
+  [/kimi/gi, 'Km'],
+  [/mimo/gi, 'Mm'],
+  [/qwen/gi, 'Qn'],
+  [/\bglm/gi, 'ZAi'],
+  [/\bgpt/gi, 'Oai'],
+  [/\bphi\b/gi, 'MsP'],
+  [/\bhf\b/gi, 'Hr'],
+  [/\byi\b/gi, 'Y1'],
+]);
+
 function toModelDisplayName(id) {
   const stripped = id.replace(/^claude-/, '');
-  return stripped
+  const baseName = stripped
     .split('-')
     .filter(Boolean)
     .map((segment) => {
@@ -873,6 +903,10 @@ function toModelDisplayName(id) {
       return segment[0].toUpperCase() + segment.slice(1);
     })
     .join(' ');
+  return PICKER_FRIENDLY_DISPLAY_REPLACEMENTS.reduce(
+    (name, [pattern, replacement]) => name.replace(pattern, replacement),
+    baseName,
+  );
 }
 
 async function handleCountTokensRequest(req, res, config) {

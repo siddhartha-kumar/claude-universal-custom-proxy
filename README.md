@@ -145,7 +145,7 @@ npm install
 npm run build:mcpb
 ```
 
-Output: `dist/claude-universal-custom-proxy-0.5.0.mcpb`.
+Output: `dist/claude-universal-custom-proxy-0.5.1.mcpb`.
 
 1. **Enable Developer Mode** in Claude Desktop (Settings → General, or Help
    menu — varies by build; restart the app afterwards).
@@ -566,20 +566,54 @@ To report a security issue privately, see [SECURITY.md](SECURITY.md).
 
 ### Not all models appear in Claude Desktop's gateway / Cowork dropdown
 
-Fixed in v0.4.1. v0.3.1 introduced `/v1/models` pagination that turned out to
-truncate the picker in both Claude Desktop's Gateway/Cowork dropdown and
-Claude Code's `/model` picker. v0.4.1 reverts to the v0.2.0 behaviour of
-returning the full catalog in every response. Verify with:
+Two distinct issues have hit this dropdown — make sure both are addressed.
+
+**1. Catalog truncation by Claude Desktop's brand-keyword filter (v0.5.1+).**
+Claude Desktop's Cowork 3P picker filters out any entry whose `display_name`
+contains a foundation-model brand keyword. Empirically, the catalog dropped
+from 116 to 11 entries in v0.5.0 because most aliases carried words like
+`Llama`, `Deepseek`, `Phi`, `Qwen`, `Gemma`, `Granite`, `Mistral`, `Mixtral`,
+`Nemotron`, `Yi`, `Glm`, `Gpt`, `Gemini`, `Kimi`, `Mimo`, `Ollama`, or `Hf`.
+As of v0.5.1 the proxy rewrites those keywords in `display_name` only —
+model `id` is left untouched so existing `.env` configs and the Claude Code
+CLI keep working. The mapping the picker sees is:
+
+| Brand keyword | Display short code | Example |
+| --- | --- | --- |
+| Deepseek | `DSeek` | `claude-deepseek-v4-flash` → `DSeek v4 Flash` |
+| Llama | `Lma` | `claude-nim-llama-3.1-8b` → `Nim Lma 3.1 8b` |
+| Phi | `MsP` | `claude-nim-phi-4` → `Nim MsP 4` |
+| Qwen | `Qn` | `claude-qwen-max` → `Qn Max` |
+| Gemma | `Gma` | `claude-nim-gemma-2-27b` → `Nim Gma 2 27b` |
+| Granite | `Gnt` | `claude-nim-granite-3-8b` → `Nim Gnt 3 8b` |
+| Mistral | `Mtl` | `claude-nim-mistral-7b` → `Nim Mtl 7b` |
+| Mixtral | `Mxl` | `claude-nim-mixtral-8x7b` → `Nim Mxl 8x7b` |
+| Nemotron | `Nem` | `claude-nim-nemotron-70b` → `Nim Nem 70b` |
+| Yi | `Y1` | `claude-nim-yi-large` → `Nim Y1 Large` |
+| Kimi | `Km` | `claude-kimi-k2.6` → `Km K2.6` |
+| Glm | `ZAi` | `claude-glm-4.6` → `ZAi 4.6` |
+| Gpt | `Oai` | `claude-gpt-5.5` → `Oai 5.5` |
+| Gemini | `Ggm` | `claude-gemini-2.5-pro` → `Ggm 2.5 Pro` |
+| Mimo | `Mm` | `claude-mimo-v2-flash` → `Mm v2 Flash` |
+| Ollama | `Oc` | `claude-ollama-gpt-oss-20b` → `Oc Oai Oss 20b` |
+| Hf | `Hr` | `claude-hf-llama-3.1-8b` → `Hr Lma 3.1 8b` |
+
+Claude family aliases (`claude-haiku-*`, `claude-opus-*`, `claude-sonnet-*`)
+and short aliases like `claude-dsv4-*` were always visible and are
+unchanged. After upgrading, **restart Claude Desktop** so its cached model
+list refreshes.
+
+**2. Pagination truncation (fixed in v0.4.1).** v0.3.1 introduced
+`/v1/models` pagination that truncated the picker for clients that
+probed `?limit=1`. v0.4.1 reverts to returning the full catalog in
+every response. Verify with:
 
 ```sh
 curl 'http://127.0.0.1:8787/v1/models' | jq '.data | length, .has_more'
-# expect: 84, false
+# expect: 116, false
 curl 'http://127.0.0.1:8787/v1/models?limit=1' | jq '.data | length, .has_more'
-# expect: 84, false  (limit is intentionally ignored)
+# expect: 116, false  (limit is intentionally ignored)
 ```
-
-Upgrade to v0.4.1 (MCPB) or pull the latest `dev` / `main` for the standalone
-proxy, then **restart Claude Desktop** so its cached model list refreshes.
 
 ### Model selection dropdown is empty in Claude Desktop
 
@@ -663,7 +697,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ```
 .
-├── manifest.json              # MCPB extension manifest (v0.5.0)
+├── manifest.json              # MCPB extension manifest (v0.5.1)
 ├── proxy.mjs                  # HTTP gateway proxy and provider adapters
 ├── server/index.mjs           # MCP stdio server hosting the proxy
 ├── scripts/                   # Build, LaunchAgent, and Node helper scripts
