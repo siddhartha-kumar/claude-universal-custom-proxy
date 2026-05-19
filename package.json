@@ -1,6 +1,6 @@
 {
   "name": "claude-universal-custom-proxy",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Local Anthropic Messages gateway that routes Claude-style model names to Ollama Cloud, Hugging Face Inference Router, NVIDIA NIM, OpenAI, Gemini, Qwen, DeepSeek, Moonshot/Kimi, Z.AI/GLM, Xiaomi MiMo, or Anthropic upstreams with smart Claude family fallback.",
   "private": true,
   "type": "module",

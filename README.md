@@ -89,7 +89,7 @@ standalone Node service for CI, headless servers, or Claude Code CLI use.
   both JSON and SSE responses.
 - **Provider disambiguation by alias** — the same upstream id (`glm-4.6`) is
   served by both Z.AI and Ollama Cloud; the proxy routes by request alias so
-  `claude-glm-4.6` → Z.AI and `claude-ollama-glm-4.6` → Ollama, no collision.
+  `glm-4.6` → Z.AI and `ollama-glm-4.6` → Ollama, no collision.
 - **MCPB-packaged** — a single `.mcpb` install drops the proxy into Claude
   Desktop on Windows or macOS, with a guided install dialog for the most
   common keys.
@@ -145,7 +145,7 @@ npm install
 npm run build:mcpb
 ```
 
-Output: `dist/claude-universal-custom-proxy-0.5.1.mcpb`.
+Output: `dist/claude-universal-custom-proxy-0.6.0.mcpb`.
 
 1. **Enable Developer Mode** in Claude Desktop (Settings → General, or Help
    menu — varies by build; restart the app afterwards).
@@ -161,9 +161,9 @@ Output: `dist/claude-universal-custom-proxy-0.5.1.mcpb`.
    | Default Provider | ✓ | `ollama` (or `huggingface`) |
    | **Ollama Cloud API Key** | ★ | get at [ollama.com/settings/keys](https://ollama.com/settings/keys) |
    | **HuggingFace API Token** | ★ | get at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
-   | Claude Haiku Fallback Alias | | `claude-ollama-qwen3-coder-next` |
-   | Claude Sonnet Fallback Alias | | `claude-ollama-qwen3-coder` |
-   | Claude Opus Fallback Alias | | `claude-ollama-gpt-oss-120b` |
+   | Claude Haiku Fallback Alias | | `ollama-qwen3-coder-next` |
+   | Claude Sonnet Fallback Alias | | `ollama-qwen3-coder` |
+   | Claude Opus Fallback Alias | | `ollama-gpt-oss-120b` |
    | DeepSeek / Moonshot keys | | _blank unless you use them_ |
    | Optional Advanced Settings JSON | | `{}` (GLM, Xiaomi, OpenAI, Gemini, Qwen, Anthropic keys live here) |
 
@@ -180,7 +180,7 @@ Output: `dist/claude-universal-custom-proxy-0.5.1.mcpb`.
    | Gateway auth scheme | `bearer` |
    | Model list | *Fetch from gateway* — auto-populates 62 aliases |
 
-5. **Open a new chat** and pick any `claude-ollama-*` or `claude-hf-*` model.
+5. **Open a new chat** and pick any `ollama-*` or `hf-*` model.
    Anything Claude Desktop sends in the background (title generation,
    `count_tokens`, summarisation) is routed through the same provider via the
    family-fallback resolver.
@@ -270,17 +270,17 @@ variants like `claude-haiku-4-5-20251001`) is rewritten to the alias below
 
 | Variable | Default | Use case |
 | --- | --- | --- |
-| `CLAUDE_HAIKU_MODEL` | `claude-ollama-qwen3-coder-next` | Fast, low-cost generations. |
-| `CLAUDE_SONNET_MODEL` | `claude-ollama-qwen3-coder` | Default chat model. |
-| `CLAUDE_OPUS_MODEL` | `claude-ollama-gpt-oss-120b` | Long-context, complex reasoning. |
+| `CLAUDE_HAIKU_MODEL` | `ollama-qwen3-coder-next` | Fast, low-cost generations. |
+| `CLAUDE_SONNET_MODEL` | `ollama-qwen3-coder` | Default chat model. |
+| `CLAUDE_OPUS_MODEL` | `ollama-gpt-oss-120b` | Long-context, complex reasoning. |
 
 Each value must be a Claude alias that exists in `MODEL_MAP`. Useful HF-only
 overrides:
 
 ```bash
-CLAUDE_HAIKU_MODEL=claude-hf-llama-3.1-8b
-CLAUDE_SONNET_MODEL=claude-hf-qwen-2.5-coder-32b
-CLAUDE_OPUS_MODEL=claude-hf-llama-3.1-405b
+CLAUDE_HAIKU_MODEL=hf-llama-3.1-8b
+CLAUDE_SONNET_MODEL=hf-qwen-2.5-coder-32b
+CLAUDE_OPUS_MODEL=hf-llama-3.1-405b
 ```
 
 ### Routing overrides
@@ -302,8 +302,8 @@ single blob with the same keys:
   "ANTHROPIC_API_KEY": "sk-ant-...",
   "REWRITE_RESPONSES": "true",
   "DEBUG_PROXY": "true",
-  "MODEL_MAP": "{\"claude-hf-my-model\":\"vendor/Some-Model\"}",
-  "MODEL_ROUTES": "{\"claude-hf-my-model\":\"huggingface\"}"
+  "MODEL_MAP": "{\"hf-my-model\":\"vendor/Some-Model\"}",
+  "MODEL_ROUTES": "{\"hf-my-model\":\"huggingface\"}"
 }
 ```
 
@@ -318,10 +318,10 @@ curl http://127.0.0.1:8787/v1/models
 
 | Prefix | Count | Backend |
 | --- | :---: | --- |
-| `claude-nim-*` | 36 | NVIDIA NIM (build.nvidia.com — free tier) |
-| `claude-ollama-*` | 30 | Ollama Cloud (Turbo) |
-| `claude-hf-*` | 18 | Hugging Face Inference Router |
-| `claude-deepseek-*`, `claude-kimi-*`, `claude-glm-*`, `claude-mimo-*`, `claude-gpt-*`, `claude-gemini-*`, `claude-qwen-*`, native `claude-haiku-*`/`-sonnet-*`/`-opus-*` | 32 | Native upstream (DeepSeek, Moonshot, Z.AI, Xiaomi, OpenAI, Gemini, DashScope, Anthropic) |
+| `nim-*` | 36 | NVIDIA NIM (build.nvidia.com — free tier) |
+| `ollama-*` | 30 | Ollama Cloud (Turbo) |
+| `hf-*` | 18 | Hugging Face Inference Router |
+| `deepseek-*`, `kimi-*`, `glm-*`, `mimo-*`, `gpt-*`, `gemini-*`, `qwen-*`, native `claude-haiku-*`/`-sonnet-*`/`-opus-*` | 32 | Native upstream (DeepSeek, Moonshot, Z.AI, Xiaomi, OpenAI, Gemini, DashScope, Anthropic) |
 
 A condensed summary by provider follows.
 
@@ -332,62 +332,62 @@ A condensed summary by provider follows.
 
 ### DeepSeek
 
-`claude-deepseek-v4-flash`, `claude-deepseek-v4-pro`.
+`deepseek-v4-flash`, `deepseek-v4-pro`.
 
 ### Moonshot / Kimi
 
-`claude-kimi-k2.6`.
+`kimi-k2.6`.
 
 ### Z.AI / GLM
 
-`claude-glm-4.5-air`, `claude-glm-4.6`, `claude-glm-4.7`, `claude-glm-5`,
-`claude-glm-5.1`.
+`glm-4.5-air`, `glm-4.6`, `glm-4.7`, `glm-5`,
+`glm-5.1`.
 
 ### Xiaomi MiMo
 
-`claude-mimo-v2-flash`, `claude-mimo-v2-pro`, `claude-mimo-v2.5-pro`,
-`claude-mimo-v2-omni`.
+`mimo-v2-flash`, `mimo-v2-pro`, `mimo-v2.5-pro`,
+`mimo-v2-omni`.
 
 ### OpenAI
 
-`claude-gpt-5.5`, `claude-gpt-5.4`, `claude-gpt-5.4-mini`.
+`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`.
 
 ### Gemini
 
-`claude-gemini-2.0-flash`, `claude-gemini-2.5-flash`, `claude-gemini-2.5-pro`,
-`claude-gemini-3-flash-preview`, `claude-gemini-3.1-flash-lite-preview`,
-`claude-gemini-3.1-pro-preview`.
+`gemini-2.0-flash`, `gemini-2.5-flash`, `gemini-2.5-pro`,
+`gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`,
+`gemini-3.1-pro-preview`.
 
 ### Qwen / DashScope
 
-`claude-qwen-flash`, `claude-qwen-plus`, `claude-qwen-max`.
+`qwen-flash`, `qwen-plus`, `qwen-max`.
 
 ### Ollama Cloud (Turbo) — 30 aliases
 
 | Alias | Upstream id |
 | --- | --- |
-| `claude-ollama-gpt-oss-20b` | `gpt-oss:20b-cloud` |
-| `claude-ollama-gpt-oss-120b` | `gpt-oss:120b-cloud` |
-| `claude-ollama-deepseek-v3.1` | `deepseek-v3.1:671b-cloud` |
-| `claude-ollama-deepseek-v3.2` | `deepseek-v3.2:cloud` |
-| `claude-ollama-deepseek-v4-flash` (alias `claude-dsv4-flash`) | `deepseek-v4-flash:cloud` |
-| `claude-ollama-deepseek-v4-pro` (alias `claude-dsv4-pro`) | `deepseek-v4-pro:cloud` |
-| `claude-ollama-qwen3-coder` | `qwen3-coder:480b-cloud` |
-| `claude-ollama-qwen3-coder-next` | `qwen3-coder-next:cloud` |
-| `claude-ollama-qwen3-vl`, `claude-ollama-qwen3-vl-instruct` | `qwen3-vl:235b-cloud`, `qwen3-vl:235b-instruct-cloud` |
-| `claude-ollama-qwen3-next` | `qwen3-next:80b-cloud` |
-| `claude-ollama-qwen3.5` | `qwen3.5:cloud` |
-| `claude-ollama-kimi-k2` | `kimi-k2:1t-cloud` |
-| `claude-ollama-kimi-k2-thinking` | `kimi-k2-thinking:cloud` |
-| `claude-ollama-kimi-k2.6` | `kimi-k2.6:cloud` |
-| `claude-ollama-glm-4.6`, `claude-ollama-glm-4.7`, `claude-ollama-glm-5` | matching `glm-*:cloud` |
-| `claude-ollama-glm-5.1` (alias `claude-glm51`) | `glm-5.1:cloud` |
-| `claude-ollama-minimax-m2`, `…-m2.1`, `…-m2.5`, `…-m2.7` | matching `minimax-*:cloud` |
-| `claude-ollama-nemotron-3-nano`, `claude-ollama-nemotron-3-super` | `nemotron-3-nano:30b-cloud`, `nemotron-3-super:cloud` |
-| `claude-ollama-devstral-small-2`, `claude-ollama-ministral-3` | `devstral-small-2:24b-cloud`, `ministral-3:8b-cloud` |
-| `claude-ollama-gemma4-31b` | `gemma4:31b-cloud` |
-| `claude-ollama-gemini-3-flash-preview` | `gemini-3-flash-preview:cloud` |
-| `claude-ollama-rnj-1` | `rnj-1:8b-cloud` |
+| `ollama-gpt-oss-20b` | `gpt-oss:20b-cloud` |
+| `ollama-gpt-oss-120b` | `gpt-oss:120b-cloud` |
+| `ollama-deepseek-v3.1` | `deepseek-v3.1:671b-cloud` |
+| `ollama-deepseek-v3.2` | `deepseek-v3.2:cloud` |
+| `ollama-deepseek-v4-flash` (alias `dsv4-flash`) | `deepseek-v4-flash:cloud` |
+| `ollama-deepseek-v4-pro` (alias `dsv4-pro`) | `deepseek-v4-pro:cloud` |
+| `ollama-qwen3-coder` | `qwen3-coder:480b-cloud` |
+| `ollama-qwen3-coder-next` | `qwen3-coder-next:cloud` |
+| `ollama-qwen3-vl`, `ollama-qwen3-vl-instruct` | `qwen3-vl:235b-cloud`, `qwen3-vl:235b-instruct-cloud` |
+| `ollama-qwen3-next` | `qwen3-next:80b-cloud` |
+| `ollama-qwen3.5` | `qwen3.5:cloud` |
+| `ollama-kimi-k2` | `kimi-k2:1t-cloud` |
+| `ollama-kimi-k2-thinking` | `kimi-k2-thinking:cloud` |
+| `ollama-kimi-k2.6` | `kimi-k2.6:cloud` |
+| `ollama-glm-4.6`, `ollama-glm-4.7`, `ollama-glm-5` | matching `glm-*:cloud` |
+| `ollama-glm-5.1` (alias `glm51`) | `glm-5.1:cloud` |
+| `ollama-minimax-m2`, `…-m2.1`, `…-m2.5`, `…-m2.7` | matching `minimax-*:cloud` |
+| `ollama-nemotron-3-nano`, `ollama-nemotron-3-super` | `nemotron-3-nano:30b-cloud`, `nemotron-3-super:cloud` |
+| `ollama-devstral-small-2`, `ollama-ministral-3` | `devstral-small-2:24b-cloud`, `ministral-3:8b-cloud` |
+| `ollama-gemma4-31b` | `gemma4:31b-cloud` |
+| `ollama-gemini-3-flash-preview` | `gemini-3-flash-preview:cloud` |
+| `ollama-rnj-1` | `rnj-1:8b-cloud` |
 
 > **Important.** Ollama Cloud requires the `-cloud` (sized) or `:cloud`
 > (unsized) routing tag; bare ids hit local-only weights and 404.
@@ -402,15 +402,15 @@ all of them.
 
 | Alias | Upstream id |
 | --- | --- |
-| `claude-hf-llama-3.1-8b`, `claude-hf-llama-3.1-70b`, `claude-hf-llama-3.3-70b` | `meta-llama/Llama-3.1-*-Instruct`, `Llama-3.3-70B-Instruct` |
-| `claude-hf-llama-4-maverick`, `claude-hf-llama-4-scout` | `meta-llama/Llama-4-Maverick-17B-128E`, `Llama-4-Scout-17B-16E` |
-| `claude-hf-qwen-2.5-coder-32b`, `claude-hf-qwen-2.5-72b` | `Qwen/Qwen2.5-Coder-32B`, `Qwen/Qwen2.5-72B` |
-| `claude-hf-qwen3-coder-480b`, `claude-hf-qwen3-next-80b` | `Qwen/Qwen3-Coder-480B-A35B`, `Qwen3-Next-80B-A3B` |
-| `claude-hf-deepseek-r1`, `claude-hf-deepseek-v3.1`, `claude-hf-deepseek-v3.2` | `deepseek-ai/DeepSeek-R1`, `DeepSeek-V3.1`, `DeepSeek-V3.2` |
-| `claude-hf-deepseek-r1-distill-70b` | `deepseek-ai/DeepSeek-R1-Distill-Llama-70B` |
-| `claude-hf-glm-4.6`, `claude-hf-glm-5` | `zai-org/GLM-4.6`, `zai-org/GLM-5` |
-| `claude-hf-gpt-oss-20b`, `claude-hf-gpt-oss-120b` | `openai/gpt-oss-20b`, `openai/gpt-oss-120b` |
-| `claude-hf-kimi-k2.6` | `moonshotai/Kimi-K2.6` |
+| `hf-llama-3.1-8b`, `hf-llama-3.1-70b`, `hf-llama-3.3-70b` | `meta-llama/Llama-3.1-*-Instruct`, `Llama-3.3-70B-Instruct` |
+| `hf-llama-4-maverick`, `hf-llama-4-scout` | `meta-llama/Llama-4-Maverick-17B-128E`, `Llama-4-Scout-17B-16E` |
+| `hf-qwen-2.5-coder-32b`, `hf-qwen-2.5-72b` | `Qwen/Qwen2.5-Coder-32B`, `Qwen/Qwen2.5-72B` |
+| `hf-qwen3-coder-480b`, `hf-qwen3-next-80b` | `Qwen/Qwen3-Coder-480B-A35B`, `Qwen3-Next-80B-A3B` |
+| `hf-deepseek-r1`, `hf-deepseek-v3.1`, `hf-deepseek-v3.2` | `deepseek-ai/DeepSeek-R1`, `DeepSeek-V3.1`, `DeepSeek-V3.2` |
+| `hf-deepseek-r1-distill-70b` | `deepseek-ai/DeepSeek-R1-Distill-Llama-70B` |
+| `hf-glm-4.6`, `hf-glm-5` | `zai-org/GLM-4.6`, `zai-org/GLM-5` |
+| `hf-gpt-oss-20b`, `hf-gpt-oss-120b` | `openai/gpt-oss-20b`, `openai/gpt-oss-120b` |
+| `hf-kimi-k2.6` | `moonshotai/Kimi-K2.6` |
 
 ### NVIDIA NIM — 36 aliases (free at build.nvidia.com)
 
@@ -420,22 +420,22 @@ Sign up at [build.nvidia.com](https://build.nvidia.com/), generate a key
 
 | Family | Aliases |
 | --- | --- |
-| Meta Llama | `claude-nim-llama-3.1-8b`, `-3.1-70b`, `-3.1-405b`, `-3.3-70b`, `-4-maverick`, `-4-scout` |
-| NVIDIA Nemotron | `claude-nim-nemotron-nano-8b`, `-super-49b`, `-70b`, `-340b`, `claude-nim-usdcode-70b` |
-| DeepSeek | `claude-nim-deepseek-r1`, `-r1-distill-70b`, `-r1-distill-8b`, `-v3.1`, `-v3.2`, `-v4-flash`, `-v4-pro` |
-| Qwen | `claude-nim-qwen-2.5-coder-32b`, `-coder-7b`, `-2.5-72b`, `-3-235b`, `claude-nim-qwq-32b` |
-| Mistral AI | `claude-nim-mixtral-8x7b`, `-8x22b`, `claude-nim-mistral-7b`, `-nemo-12b`, `claude-nim-codestral-22b` |
-| Microsoft Phi | `claude-nim-phi-3-medium`, `-3.5-mini`, `claude-nim-phi-4` |
-| Google Gemma | `claude-nim-gemma-2-9b`, `claude-nim-gemma-2-27b` |
-| IBM Granite | `claude-nim-granite-3-8b` |
-| Other | `claude-nim-palmyra-creative-122b`, `claude-nim-yi-large` |
+| Meta Llama | `nim-llama-3.1-8b`, `-3.1-70b`, `-3.1-405b`, `-3.3-70b`, `-4-maverick`, `-4-scout` |
+| NVIDIA Nemotron | `nim-nemotron-nano-8b`, `-super-49b`, `-70b`, `-340b`, `nim-usdcode-70b` |
+| DeepSeek | `nim-deepseek-r1`, `-r1-distill-70b`, `-r1-distill-8b`, `-v3.1`, `-v3.2`, `-v4-flash`, `-v4-pro` |
+| Qwen | `nim-qwen-2.5-coder-32b`, `-coder-7b`, `-2.5-72b`, `-3-235b`, `nim-qwq-32b` |
+| Mistral AI | `nim-mixtral-8x7b`, `-8x22b`, `nim-mistral-7b`, `-nemo-12b`, `nim-codestral-22b` |
+| Microsoft Phi | `nim-phi-3-medium`, `-3.5-mini`, `nim-phi-4` |
+| Google Gemma | `nim-gemma-2-9b`, `nim-gemma-2-27b` |
+| IBM Granite | `nim-granite-3-8b` |
+| Other | `nim-palmyra-creative-122b`, `nim-yi-large` |
 
 ### Conflict resolution
 
 The same upstream id (e.g. `glm-4.6`) may be served by multiple providers. The
-proxy disambiguates by request alias: `claude-glm-4.6` → Z.AI (upstream
-`glm-4.6`), `claude-ollama-glm-4.6` → Ollama Cloud (upstream `glm-4.6:cloud`).
-The same idea covers every `claude-hf-*`, `claude-ollama-*`, `claude-deepseek-*`,
+proxy disambiguates by request alias: `glm-4.6` → Z.AI (upstream
+`glm-4.6`), `ollama-glm-4.6` → Ollama Cloud (upstream `glm-4.6:cloud`).
+The same idea covers every `hf-*`, `ollama-*`, `deepseek-*`,
 and `claude-anthropic-*` pair.
 
 ## Endpoints
@@ -457,9 +457,9 @@ Claude Desktop's **Cowork 3P** picker reads its model list from `/v1/models`.
 Since v0.4.1 the proxy always returns the full catalog in a single response
 (no pagination), so the picker shows every alias the proxy knows about — all
 116 by default in v0.5.0. Pick any `claude-haiku-*`, `claude-sonnet-*`,
-`claude-opus-*`, `claude-ollama-*`, `claude-deepseek-*`, `claude-glm-*`,
-`claude-mimo-*`, `claude-kimi-*`, `claude-gpt-*`, `claude-gemini-*`, or
-`claude-qwen-*` entry from the dropdown.
+`claude-opus-*`, `ollama-*`, `deepseek-*`, `glm-*`,
+`mimo-*`, `kimi-*`, `gpt-*`, `gemini-*`, or
+`qwen-*` entry from the dropdown.
 
 If the picker looks truncated, click **Refresh** / **Check again** — Claude
 Desktop caches the response and you may be seeing a stale list from a
@@ -475,10 +475,10 @@ Claude Code (the official CLI) speaks the Anthropic Messages API and accepts
 ```sh
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8787
 export ANTHROPIC_API_KEY=dummy-claude-universal-custom-proxy
-export ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-ollama-qwen3-coder-next
-export ANTHROPIC_DEFAULT_SONNET_MODEL=claude-ollama-qwen3-coder
-export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-ollama-gpt-oss-120b
-export CLAUDE_CODE_SUBAGENT_MODEL=claude-ollama-qwen3-coder-next
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=ollama-qwen3-coder-next
+export ANTHROPIC_DEFAULT_SONNET_MODEL=ollama-qwen3-coder
+export ANTHROPIC_DEFAULT_OPUS_MODEL=ollama-gpt-oss-120b
+export CLAUDE_CODE_SUBAGENT_MODEL=ollama-qwen3-coder-next
 claude
 ```
 
@@ -566,42 +566,56 @@ To report a security issue privately, see [SECURITY.md](SECURITY.md).
 
 ### Not all models appear in Claude Desktop's gateway / Cowork dropdown
 
-Two distinct issues have hit this dropdown — make sure both are addressed.
+Two distinct issues have hit this dropdown — both are now fixed.
 
-**1. Catalog truncation by Claude Desktop's brand-keyword filter (v0.5.1+).**
-Claude Desktop's Cowork 3P picker filters out any entry whose `display_name`
-contains a foundation-model brand keyword. Empirically, the catalog dropped
-from 116 to 11 entries in v0.5.0 because most aliases carried words like
-`Llama`, `Deepseek`, `Phi`, `Qwen`, `Gemma`, `Granite`, `Mistral`, `Mixtral`,
-`Nemotron`, `Yi`, `Glm`, `Gpt`, `Gemini`, `Kimi`, `Mimo`, `Ollama`, or `Hf`.
-As of v0.5.1 the proxy rewrites those keywords in `display_name` only —
-model `id` is left untouched so existing `.env` configs and the Claude Code
-CLI keep working. The mapping the picker sees is:
+**1. Catalog truncation by Claude Desktop's namespace filter (v0.6.0+).**
+Empirically, Claude Desktop's Cowork 3P picker hides any `/v1/models` entry
+that lives in an Anthropic-owned namespace — either `claude-*` (when the id
+contains a foundation-model brand keyword) or `anthropic/*` (entirely).
+After v0.5.0 grew the catalog to 116 entries, only 11 survived the filter:
+the five native Claude family aliases plus six aliases whose names didn't
+happen to contain a foundation-model brand keyword.
 
-| Brand keyword | Display short code | Example |
+Two earlier fix attempts didn't help:
+
+- **v0.5.1** sanitized `display_name` only (e.g. `Deepseek v4 Flash` →
+  `DSeek v4 Flash`). The picker still showed 11/116 — confirming the
+  filter is on **id**, not `display_name`.
+- **v0.5.2** advertised every blocked alias under an
+  `anthropic/<provider>/<model>` gateway id. The picker rejected those
+  too, confirming the `anthropic/*` namespace is also filtered.
+
+**v0.6.0** follows the
+[wanghao9610/claude-model-proxy](https://github.com/wanghao9610/claude-model-proxy)
+reference project: every non-Claude-family alias is advertised under its
+real upstream model name with no `claude-` prefix. Only the actual
+Claude family models (`claude-haiku-*`, `claude-sonnet-*`,
+`claude-opus-*`) keep the `claude-` prefix.
+
+| Provider | v0.5.x id | v0.6.0 id |
 | --- | --- | --- |
-| Deepseek | `DSeek` | `claude-deepseek-v4-flash` → `DSeek v4 Flash` |
-| Llama | `Lma` | `claude-nim-llama-3.1-8b` → `Nim Lma 3.1 8b` |
-| Phi | `MsP` | `claude-nim-phi-4` → `Nim MsP 4` |
-| Qwen | `Qn` | `claude-qwen-max` → `Qn Max` |
-| Gemma | `Gma` | `claude-nim-gemma-2-27b` → `Nim Gma 2 27b` |
-| Granite | `Gnt` | `claude-nim-granite-3-8b` → `Nim Gnt 3 8b` |
-| Mistral | `Mtl` | `claude-nim-mistral-7b` → `Nim Mtl 7b` |
-| Mixtral | `Mxl` | `claude-nim-mixtral-8x7b` → `Nim Mxl 8x7b` |
-| Nemotron | `Nem` | `claude-nim-nemotron-70b` → `Nim Nem 70b` |
-| Yi | `Y1` | `claude-nim-yi-large` → `Nim Y1 Large` |
-| Kimi | `Km` | `claude-kimi-k2.6` → `Km K2.6` |
-| Glm | `ZAi` | `claude-glm-4.6` → `ZAi 4.6` |
-| Gpt | `Oai` | `claude-gpt-5.5` → `Oai 5.5` |
-| Gemini | `Ggm` | `claude-gemini-2.5-pro` → `Ggm 2.5 Pro` |
-| Mimo | `Mm` | `claude-mimo-v2-flash` → `Mm v2 Flash` |
-| Ollama | `Oc` | `claude-ollama-gpt-oss-20b` → `Oc Oai Oss 20b` |
-| Hf | `Hr` | `claude-hf-llama-3.1-8b` → `Hr Lma 3.1 8b` |
+| Anthropic | `claude-haiku-4-5` | `claude-haiku-4-5` *(unchanged)* |
+| DeepSeek | `deepseek-v4-flash` | `deepseek-v4-flash` |
+| Moonshot/Kimi | `kimi-k2.6` | `kimi-k2.6` |
+| Z.AI / GLM | `glm-4.6` | `glm-4.6` |
+| Xiaomi MiMo | `mimo-v2-flash` | `mimo-v2-flash` |
+| OpenAI | `gpt-5.5` | `gpt-5.5` |
+| Gemini | `gemini-2.5-pro` | `gemini-2.5-pro` |
+| Qwen / DashScope | `qwen-max` | `qwen-max` |
+| Ollama Cloud | `ollama-gpt-oss-20b` | `ollama-gpt-oss-20b` |
+| HuggingFace Router | `hf-llama-3.1-8b` | `hf-llama-3.1-8b` |
+| NVIDIA NIM | `nim-llama-3.1-8b` | `nim-llama-3.1-8b` |
+| Short alias | `dsv4-flash` | `dsv4-flash` |
 
-Claude family aliases (`claude-haiku-*`, `claude-opus-*`, `claude-sonnet-*`)
-and short aliases like `claude-dsv4-*` were always visible and are
-unchanged. After upgrading, **restart Claude Desktop** so its cached model
-list refreshes.
+**Backward compatibility.** `LEGACY_CLAUDE_ALIASES` rewrites the previous
+111 `claude-<provider>-<model>` names to their v0.6.0 ids at request
+time, so existing `.env` configs, `ANTHROPIC_DEFAULT_*_MODEL` env vars,
+the Claude Code CLI's `/model` picker, and pinned MCPB installs keep
+routing to the same upstream. Migration is optional but recommended for
+new configs.
+
+After upgrading, **restart Claude Desktop** so its cached model list
+refreshes.
 
 **2. Pagination truncation (fixed in v0.4.1).** v0.3.1 introduced
 `/v1/models` pagination that truncated the picker for clients that
@@ -610,9 +624,9 @@ every response. Verify with:
 
 ```sh
 curl 'http://127.0.0.1:8787/v1/models' | jq '.data | length, .has_more'
-# expect: 116, false
+# expect: 116, false   (5 claude-* + 111 no-prefix aliases)
 curl 'http://127.0.0.1:8787/v1/models?limit=1' | jq '.data | length, .has_more'
-# expect: 116, false  (limit is intentionally ignored)
+# expect: 116, false   (limit is intentionally ignored)
 ```
 
 ### Model selection dropdown is empty in Claude Desktop
@@ -655,7 +669,7 @@ Router selected. Either re-issue the token with broader scope or override the
 mapping to pin a different upstream:
 
 ```bash
-ADVANCED_ENV='{"MODEL_MAP":"{\"claude-hf-llama-3.3-70b\":\"together/meta-llama/Llama-3.3-70B-Instruct\"}"}'
+ADVANCED_ENV='{"MODEL_MAP":"{\"hf-llama-3.3-70b\":\"together/meta-llama/Llama-3.3-70B-Instruct\"}"}'
 ```
 
 ### HuggingFace 404 "model not found"
@@ -668,7 +682,7 @@ curl https://router.huggingface.co/v1/models \
 ```
 
 Then pin via `MODEL_MAP` / `MODEL_ROUTES` override or simply switch to a
-different `claude-hf-*` alias.
+different `hf-*` alias.
 
 ### Routes go to the wrong provider
 
@@ -697,7 +711,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ```
 .
-├── manifest.json              # MCPB extension manifest (v0.5.1)
+├── manifest.json              # MCPB extension manifest (v0.6.0)
 ├── proxy.mjs                  # HTTP gateway proxy and provider adapters
 ├── server/index.mjs           # MCP stdio server hosting the proxy
 ├── scripts/                   # Build, LaunchAgent, and Node helper scripts

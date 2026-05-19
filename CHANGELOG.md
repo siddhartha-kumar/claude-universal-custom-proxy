@@ -5,6 +5,66 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-05-19
+
+### Fixed (actually, this time)
+
+- **All 116 aliases now visible in Claude Desktop's Cowork 3P picker** by
+  following the [wanghao9610/claude-model-proxy](https://github.com/wanghao9610/claude-model-proxy)
+  pattern: every non-Claude-family alias is advertised under its real
+  upstream model name without a `claude-` prefix. v0.5.1 (display_name
+  sanitization) and v0.5.2 (`anthropic/<provider>/<model>` gateway ids)
+  both failed empirically — the picker filter is on the **id** (not
+  display_name), and it rejects both the `claude-*` prefixed namespace
+  (when the id contains a foundation-model brand keyword) AND the
+  `anthropic/*` namespace entirely.
+
+### Changed (breaking — but legacy aliases keep working)
+
+- **`/v1/models` now advertises 116 ids in the form**
+  `deepseek-v4-flash`, `kimi-k2.6`, `glm-4.6`, `gpt-5.5`,
+  `gemini-2.5-pro`, `qwen-max`, `ollama-gpt-oss-20b`, `hf-llama-3.1-8b`,
+  `nim-llama-3.1-8b`, etc. Only `claude-haiku-*`, `claude-sonnet-*`,
+  `claude-opus-*` keep the `claude-` prefix because they really are
+  Claude models.
+- `DEFAULT_MODEL_MAP`, `DEFAULT_MODEL_ROUTES`, `DEFAULT_MODEL_ALIASES`,
+  and `DEFAULT_CLAUDE_FAMILY_FALLBACK` are all rekeyed to the new ids.
+- `display_name` is now the same as `id` (the upstream names are
+  already human-readable), matching the reference project. Drops the
+  cosmetic `toModelDisplayName` transform from v0.5.0–v0.5.2.
+
+### Added
+
+- **`LEGACY_CLAUDE_ALIASES`** export — a 111-entry map of every
+  previous `claude-<provider>-<model>` alias to its v0.6.0 id.
+  `resolveModelForUpstream` rewrites legacy aliases at request time, so
+  existing user `.env` configs, the Claude Code CLI, and pinned MCPB
+  installs keep routing to the same upstream without any user change.
+- New test `legacy claude-* aliases still route to the same upstream as
+  their v0.6.0 id` pins this contract.
+
+### Removed
+
+- All v0.5.2 gateway-id infrastructure (`COWORK_PICKER_BLOCKED_SUBSTRINGS`,
+  `GATEWAY_PROVIDER_NAMES`, `GATEWAY_MODEL_REPLACEMENTS`,
+  `CLAUDE_ALIAS_PROVIDER_PREFIXES`, `toGatewayId`, `buildGatewayMaps`,
+  `gatewayToClaudeAlias` reverse-lookup). The `anthropic/<provider>/<model>`
+  approach turned out to be filtered just as aggressively as `claude-*`.
+- The v0.5.1 `PICKER_FRIENDLY_DISPLAY_REPLACEMENTS` substitution table —
+  display_name was never the filter axis.
+
+### Migration
+
+If your `.env` or MCPB install dialog contains `CLAUDE_HAIKU_MODEL`,
+`CLAUDE_SONNET_MODEL`, `CLAUDE_OPUS_MODEL`, or
+`ANTHROPIC_DEFAULT_*_MODEL` values like `claude-ollama-qwen3-coder-next`,
+they continue to work via the legacy alias map but the canonical form is
+now the no-prefix `ollama-qwen3-coder-next`. Updating is optional.
+
+### Tests
+
+- 36 cases, all passing.
+
 ## [0.5.1] — 2026-05-18
 
 ### Fixed

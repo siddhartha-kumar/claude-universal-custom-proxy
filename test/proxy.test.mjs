@@ -19,7 +19,7 @@ import {
   stripClaudeDate,
 } from '../proxy.mjs';
 
-test('routes claude-deepseek-v4-flash to DeepSeek flash and rewrites responses back', async (t) => {
+test('routes deepseek-v4-flash to DeepSeek flash and rewrites responses back', async (t) => {
   let upstreamBody;
   let upstreamAuthorization;
 
@@ -53,7 +53,7 @@ test('routes claude-deepseek-v4-flash to DeepSeek flash and rewrites responses b
   t.after(() => close(proxy));
 
   const response = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-deepseek-v4-flash',
+    model: 'deepseek-v4-flash',
     max_tokens: 16,
     messages: [
       {
@@ -67,7 +67,7 @@ test('routes claude-deepseek-v4-flash to DeepSeek flash and rewrites responses b
   assert.equal(JSON.parse(upstreamBody).model, 'deepseek-v4-flash');
   assert.equal(JSON.parse(upstreamBody).messages[0].content, 'deepseek-v4-flash');
   assert.equal(response.statusCode, 200);
-  assert.equal(response.body.model, 'claude-deepseek-v4-flash');
+  assert.equal(response.body.model, 'deepseek-v4-flash');
 });
 
 test('routes original Claude model names to Anthropic upstream', async (t) => {
@@ -157,13 +157,13 @@ test('routes DeepSeek pro and Kimi model names to their providers', async (t) =>
   const deepseekResponse = await postJson(
     `http://127.0.0.1:${proxy.address().port}/v1/messages`,
     {
-      model: 'claude-deepseek-v4-pro',
+      model: 'deepseek-v4-pro',
     },
   );
   const kimiResponse = await postJson(
     `http://127.0.0.1:${proxy.address().port}/v1/messages`,
     {
-      model: 'claude-kimi-k2.6',
+      model: 'kimi-k2.6',
     },
   );
 
@@ -172,8 +172,8 @@ test('routes DeepSeek pro and Kimi model names to their providers', async (t) =>
   assert.equal(JSON.parse(seen[0].body).model, 'deepseek-v4-pro');
   assert.equal(seen[1].authorization, 'Bearer moonshot-test-key');
   assert.equal(JSON.parse(seen[1].body).model, 'kimi-k2.6');
-  assert.equal(deepseekResponse.body.model, 'claude-deepseek-v4-pro');
-  assert.equal(kimiResponse.body.model, 'claude-kimi-k2.6');
+  assert.equal(deepseekResponse.body.model, 'deepseek-v4-pro');
+  assert.equal(kimiResponse.body.model, 'kimi-k2.6');
 });
 
 test('rewrites streamed Kimi SSE model names even when split across chunks', async (t) => {
@@ -198,11 +198,11 @@ test('rewrites streamed Kimi SSE model names even when split across chunks', asy
   t.after(() => close(proxy));
 
   const response = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-kimi-k2.6',
+    model: 'kimi-k2.6',
     stream: true,
   });
 
-  assert.equal(response.text, 'data: {"model":"claude-kimi-k2.6"}\n\n');
+  assert.equal(response.text, 'data: {"model":"kimi-k2.6"}\n\n');
 });
 
 test('routes GLM and Xiaomi MiMo models with provider-specific API keys', async (t) => {
@@ -257,19 +257,19 @@ test('routes GLM and Xiaomi MiMo models with provider-specific API keys', async 
   const glmResponse = await postJson(
     `http://127.0.0.1:${proxy.address().port}/v1/messages`,
     {
-      model: 'claude-glm-4.7',
+      model: 'glm-4.7',
     },
   );
   const xiaomiResponse = await postJson(
     `http://127.0.0.1:${proxy.address().port}/v1/messages`,
     {
-      model: 'claude-mimo-v2-flash',
+      model: 'mimo-v2-flash',
     },
   );
   const xiaomiProResponse = await postJson(
     `http://127.0.0.1:${proxy.address().port}/v1/messages`,
     {
-      model: 'claude-mimo-v2-pro',
+      model: 'mimo-v2-pro',
     },
   );
 
@@ -280,9 +280,9 @@ test('routes GLM and Xiaomi MiMo models with provider-specific API keys', async 
   assert.equal(JSON.parse(seen[1].body).model, 'mimo-v2-flash');
   assert.equal(seen[2].authorization, 'Bearer xiaomi-test-key');
   assert.equal(JSON.parse(seen[2].body).model, 'mimo-v2-pro');
-  assert.equal(glmResponse.body.model, 'claude-glm-4.7');
-  assert.equal(xiaomiResponse.body.model, 'claude-mimo-v2-flash');
-  assert.equal(xiaomiProResponse.body.model, 'claude-mimo-v2-pro');
+  assert.equal(glmResponse.body.model, 'glm-4.7');
+  assert.equal(xiaomiResponse.body.model, 'mimo-v2-flash');
+  assert.equal(xiaomiProResponse.body.model, 'mimo-v2-pro');
 });
 
 test('adapts OpenAI Chat Completions to Anthropic Messages', async (t) => {
@@ -330,7 +330,7 @@ test('adapts OpenAI Chat Completions to Anthropic Messages', async (t) => {
   t.after(() => close(proxy));
 
   const response = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-gpt-5.5',
+    model: 'gpt-5.5',
     max_tokens: 32,
     system: 'be terse',
     messages: [
@@ -362,7 +362,7 @@ test('adapts OpenAI Chat Completions to Anthropic Messages', async (t) => {
     },
   ]);
   assert.equal(response.statusCode, 200);
-  assert.equal(response.body.model, 'claude-gpt-5.5');
+  assert.equal(response.body.model, 'gpt-5.5');
   assert.deepEqual(response.body.content, [
     {
       type: 'text',
@@ -414,7 +414,7 @@ test('routes Gemini OpenAI-compatible requests with Gemini API key', async (t) =
   t.after(() => close(proxy));
 
   const response = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-gemini-3.1-pro-preview',
+    model: 'gemini-3.1-pro-preview',
     max_tokens: 64,
     messages: [
       {
@@ -430,7 +430,7 @@ test('routes Gemini OpenAI-compatible requests with Gemini API key', async (t) =
   assert.equal(parsedUpstreamBody.model, 'gemini-3.1-pro-preview');
   assert.equal(parsedUpstreamBody.max_tokens, 64);
   assert.equal(response.statusCode, 200);
-  assert.equal(response.body.model, 'claude-gemini-3.1-pro-preview');
+  assert.equal(response.body.model, 'gemini-3.1-pro-preview');
 });
 
 test('routes Ollama Cloud requests through OpenAI-compatible endpoint', async (t) => {
@@ -472,7 +472,7 @@ test('routes Ollama Cloud requests through OpenAI-compatible endpoint', async (t
   t.after(() => close(proxy));
 
   const response = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-ollama-gpt-oss-120b',
+    model: 'ollama-gpt-oss-120b',
     max_tokens: 64,
     messages: [
       {
@@ -488,7 +488,7 @@ test('routes Ollama Cloud requests through OpenAI-compatible endpoint', async (t
   assert.equal(parsedUpstreamBody.model, 'gpt-oss:120b-cloud');
   assert.equal(parsedUpstreamBody.max_tokens, 64);
   assert.equal(response.statusCode, 200);
-  assert.equal(response.body.model, 'claude-ollama-gpt-oss-120b');
+  assert.equal(response.body.model, 'ollama-gpt-oss-120b');
 });
 
 test('routes Ollama Cloud glm-4.6 to Ollama provider, not Z.AI, when the Claude alias asks for it', async (t) => {
@@ -550,12 +550,12 @@ test('routes Ollama Cloud glm-4.6 to Ollama provider, not Z.AI, when the Claude 
   t.after(() => close(proxy));
 
   const ollamaResponse = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-ollama-glm-4.6',
+    model: 'ollama-glm-4.6',
     max_tokens: 16,
     messages: [{ role: 'user', content: 'hi' }],
   });
   const glmResponse = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-glm-4.6',
+    model: 'glm-4.6',
   });
 
   assert.deepEqual(seen.map((item) => item.provider), ['ollama', 'glm']);
@@ -563,8 +563,8 @@ test('routes Ollama Cloud glm-4.6 to Ollama provider, not Z.AI, when the Claude 
   assert.equal(JSON.parse(seen[0].body).model, 'glm-4.6:cloud');
   assert.equal(seen[1].authorization, 'Bearer glm-test-key');
   assert.equal(JSON.parse(seen[1].body).model, 'glm-4.6');
-  assert.equal(ollamaResponse.body.model, 'claude-ollama-glm-4.6');
-  assert.equal(glmResponse.body.model, 'claude-glm-4.6');
+  assert.equal(ollamaResponse.body.model, 'ollama-glm-4.6');
+  assert.equal(glmResponse.body.model, 'glm-4.6');
 });
 
 test('routes Qwen OpenAI-compatible requests with DashScope API key', async (t) => {
@@ -606,7 +606,7 @@ test('routes Qwen OpenAI-compatible requests with DashScope API key', async (t) 
   t.after(() => close(proxy));
 
   const response = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-qwen-plus',
+    model: 'qwen-plus',
     max_tokens: 64,
     messages: [
       {
@@ -622,7 +622,7 @@ test('routes Qwen OpenAI-compatible requests with DashScope API key', async (t) 
   assert.equal(parsedUpstreamBody.model, 'qwen-plus');
   assert.equal(parsedUpstreamBody.max_tokens, 64);
   assert.equal(response.statusCode, 200);
-  assert.equal(response.body.model, 'claude-qwen-plus');
+  assert.equal(response.body.model, 'qwen-plus');
 });
 
 test('routes Anthropic Claude models with x-api-key auth', async (t) => {
@@ -703,7 +703,7 @@ test('converts OpenAI-compatible streaming responses to Anthropic SSE', async (t
   t.after(() => close(proxy));
 
   const response = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-gpt-5.5',
+    model: 'gpt-5.5',
     stream: true,
     messages: [
       {
@@ -714,7 +714,7 @@ test('converts OpenAI-compatible streaming responses to Anthropic SSE', async (t
   });
 
   assert.match(response.text, /event: message_start/);
-  assert.match(response.text, /"model":"claude-gpt-5.5"/);
+  assert.match(response.text, /"model":"gpt-5\.5"/);
   assert.match(response.text, /"text":"hel"/);
   assert.match(response.text, /"text":"lo"/);
   assert.match(response.text, /event: message_stop/);
@@ -876,10 +876,10 @@ test('serves configured model list for Claude Code and SDK discovery', async (t)
   assert.equal(modelsResponse.statusCode, 200);
   assert.equal(modelsResponse.body.has_more, false);
   for (const requiredId of [
-    'claude-deepseek-v4-pro',
-    'claude-kimi-k2.6',
-    'claude-qwen-max',
-    'claude-ollama-gpt-oss-120b',
+    'deepseek-v4-pro',
+    'kimi-k2.6',
+    'qwen-max',
+    'ollama-gpt-oss-120b',
     'claude-haiku-4-5',
     'claude-sonnet-4-6',
     'claude-opus-4-7',
@@ -891,10 +891,10 @@ test('serves configured model list for Claude Code and SDK discovery', async (t)
   }
 
   const modelResponse = await getJson(
-    `http://127.0.0.1:${proxy.address().port}/v1/models/claude-deepseek-v4-pro`,
+    `http://127.0.0.1:${proxy.address().port}/v1/models/deepseek-v4-pro`,
   );
   assert.equal(modelResponse.statusCode, 200);
-  assert.equal(modelResponse.body.id, 'claude-deepseek-v4-pro');
+  assert.equal(modelResponse.body.id, 'deepseek-v4-pro');
   assert.equal(modelResponse.body.type, 'model');
   assert.equal(typeof modelResponse.body.display_name, 'string');
   assert.ok(modelResponse.body.display_name.length > 0);
@@ -964,9 +964,9 @@ test('uses Anthropic-compatible provider base URLs by default', () => {
       'gpt-5.5',
     ],
   );
-  assert.equal(config.modelMap['claude-gpt-5.5'], 'gpt-5.5');
-  assert.equal(config.modelMap['claude-gpt-5.4'], 'gpt-5.4');
-  assert.equal(config.modelMap['claude-gpt-5.4-mini'], 'gpt-5.4-mini');
+  assert.equal(config.modelMap['gpt-5.5'], 'gpt-5.5');
+  assert.equal(config.modelMap['gpt-5.4'], 'gpt-5.4');
+  assert.equal(config.modelMap['gpt-5.4-mini'], 'gpt-5.4-mini');
   assert.deepEqual(
     Object.entries(config.modelRoutes)
       .filter(([, provider]) => provider === 'qwen')
@@ -978,62 +978,62 @@ test('uses Anthropic-compatible provider base URLs by default', () => {
       'qwen-plus',
     ],
   );
-  assert.equal(config.modelMap['claude-qwen-flash'], 'qwen-flash');
-  assert.equal(config.modelMap['claude-qwen-plus'], 'qwen-plus');
-  assert.equal(config.modelMap['claude-qwen-max'], 'qwen-max');
+  assert.equal(config.modelMap['qwen-flash'], 'qwen-flash');
+  assert.equal(config.modelMap['qwen-plus'], 'qwen-plus');
+  assert.equal(config.modelMap['qwen-max'], 'qwen-max');
   const ollamaRoutes = Object.entries(config.modelRoutes)
     .filter(([, provider]) => provider === 'ollama')
     .map(([model]) => model);
   for (const expected of [
-    'claude-ollama-gpt-oss-20b',
-    'claude-ollama-gpt-oss-120b',
-    'claude-ollama-deepseek-v3.1',
-    'claude-ollama-deepseek-v3.2',
-    'claude-ollama-deepseek-v4-flash',
-    'claude-ollama-deepseek-v4-pro',
-    'claude-ollama-qwen3-coder',
-    'claude-ollama-qwen3-coder-next',
-    'claude-ollama-qwen3-vl',
-    'claude-ollama-qwen3-vl-instruct',
-    'claude-ollama-qwen3-next',
-    'claude-ollama-qwen3.5',
-    'claude-ollama-kimi-k2',
-    'claude-ollama-kimi-k2-thinking',
-    'claude-ollama-kimi-k2.6',
-    'claude-ollama-glm-4.6',
-    'claude-ollama-glm-4.7',
-    'claude-ollama-glm-5',
-    'claude-ollama-glm-5.1',
-    'claude-ollama-minimax-m2',
-    'claude-ollama-minimax-m2.1',
-    'claude-ollama-minimax-m2.5',
-    'claude-ollama-minimax-m2.7',
-    'claude-ollama-nemotron-3-nano',
-    'claude-ollama-nemotron-3-super',
-    'claude-ollama-devstral-small-2',
-    'claude-ollama-ministral-3',
-    'claude-ollama-gemma4-31b',
-    'claude-ollama-gemini-3-flash-preview',
-    'claude-ollama-rnj-1',
-    'claude-dsv4-flash',
-    'claude-dsv4-pro',
-    'claude-glm51',
+    'ollama-gpt-oss-20b',
+    'ollama-gpt-oss-120b',
+    'ollama-deepseek-v3.1',
+    'ollama-deepseek-v3.2',
+    'ollama-deepseek-v4-flash',
+    'ollama-deepseek-v4-pro',
+    'ollama-qwen3-coder',
+    'ollama-qwen3-coder-next',
+    'ollama-qwen3-vl',
+    'ollama-qwen3-vl-instruct',
+    'ollama-qwen3-next',
+    'ollama-qwen3.5',
+    'ollama-kimi-k2',
+    'ollama-kimi-k2-thinking',
+    'ollama-kimi-k2.6',
+    'ollama-glm-4.6',
+    'ollama-glm-4.7',
+    'ollama-glm-5',
+    'ollama-glm-5.1',
+    'ollama-minimax-m2',
+    'ollama-minimax-m2.1',
+    'ollama-minimax-m2.5',
+    'ollama-minimax-m2.7',
+    'ollama-nemotron-3-nano',
+    'ollama-nemotron-3-super',
+    'ollama-devstral-small-2',
+    'ollama-ministral-3',
+    'ollama-gemma4-31b',
+    'ollama-gemini-3-flash-preview',
+    'ollama-rnj-1',
+    'dsv4-flash',
+    'dsv4-pro',
+    'glm51',
   ]) {
     assert.ok(
       ollamaRoutes.includes(expected),
       `expected ${expected} to route to ollama provider`,
     );
   }
-  assert.equal(config.modelMap['claude-ollama-gpt-oss-120b'], 'gpt-oss:120b-cloud');
-  assert.equal(config.modelMap['claude-ollama-qwen3-coder'], 'qwen3-coder:480b-cloud');
-  assert.equal(config.modelMap['claude-ollama-deepseek-v3.1'], 'deepseek-v3.1:671b-cloud');
-  assert.equal(config.modelMap['claude-ollama-kimi-k2'], 'kimi-k2:1t-cloud');
-  assert.equal(config.modelMap['claude-ollama-glm-5.1'], 'glm-5.1:cloud');
-  assert.equal(config.modelMap['claude-ollama-qwen3.5'], 'qwen3.5:cloud');
-  assert.equal(config.modelMap['claude-dsv4-flash'], 'deepseek-v4-flash:cloud');
-  assert.equal(config.modelMap['claude-glm51'], 'glm-5.1:cloud');
+  assert.equal(config.modelMap['ollama-gpt-oss-120b'], 'gpt-oss:120b-cloud');
+  assert.equal(config.modelMap['ollama-qwen3-coder'], 'qwen3-coder:480b-cloud');
+  assert.equal(config.modelMap['ollama-deepseek-v3.1'], 'deepseek-v3.1:671b-cloud');
+  assert.equal(config.modelMap['ollama-kimi-k2'], 'kimi-k2:1t-cloud');
+  assert.equal(config.modelMap['ollama-glm-5.1'], 'glm-5.1:cloud');
+  assert.equal(config.modelMap['ollama-qwen3.5'], 'qwen3.5:cloud');
+  assert.equal(config.modelMap['dsv4-flash'], 'deepseek-v4-flash:cloud');
+  assert.equal(config.modelMap['glm51'], 'glm-5.1:cloud');
   // Conflict resolution: same upstream id glm-5.1 → different providers per alias.
-  assert.equal(config.modelRoutes['claude-ollama-glm-5.1'], 'ollama');
+  assert.equal(config.modelRoutes['ollama-glm-5.1'], 'ollama');
   assert.equal(config.modelRoutes['glm-5.1'], 'glm');
 
   // HuggingFace and NVIDIA NIM providers are wired up with their bundled
@@ -1061,10 +1061,10 @@ test('uses Anthropic-compatible provider base URLs by default', () => {
     .filter(([, provider]) => provider === 'nvidia')
     .map(([model]) => model);
   assert.ok(nimRoutes.length >= 30, `expected >=30 nvidia routes, got ${nimRoutes.length}`);
-  const hfAliases = Object.keys(config.modelMap).filter((id) => id.startsWith('claude-hf-'));
-  assert.ok(hfAliases.length >= 15, `expected >=15 claude-hf-* aliases, got ${hfAliases.length}`);
-  const nimAliases = Object.keys(config.modelMap).filter((id) => id.startsWith('claude-nim-'));
-  assert.ok(nimAliases.length >= 30, `expected >=30 claude-nim-* aliases, got ${nimAliases.length}`);
+  const hfAliases = Object.keys(config.modelMap).filter((id) => id.startsWith('hf-'));
+  assert.ok(hfAliases.length >= 15, `expected >=15 hf-* aliases, got ${hfAliases.length}`);
+  const nimAliases = Object.keys(config.modelMap).filter((id) => id.startsWith('nim-'));
+  assert.ok(nimAliases.length >= 30, `expected >=30 nim-* aliases, got ${nimAliases.length}`);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1098,7 +1098,7 @@ test('resolveClaudeFamily detects the haiku/sonnet/opus family', () => {
   assert.equal(resolveClaudeFamily('claude-haiku-4-5-20251001'), 'haiku');
   assert.equal(resolveClaudeFamily('claude-sonnet-4-6'), 'sonnet');
   assert.equal(resolveClaudeFamily('claude-opus-4-7'), 'opus');
-  assert.equal(resolveClaudeFamily('claude-ollama-gpt-oss-120b'), null);
+  assert.equal(resolveClaudeFamily('ollama-gpt-oss-120b'), null);
   assert.equal(resolveClaudeFamily('gpt-5.4'), null);
 });
 
@@ -1111,19 +1111,19 @@ test('resolveModelForUpstream falls back to Ollama for dated Claude names when A
   // Dated Haiku → fallback alias (claude-ollama-qwen3-coder-next by default).
   const haiku = resolveModelForUpstream('claude-haiku-4-5-20251001', config);
   assert.equal(haiku.family, 'haiku');
-  assert.equal(haiku.requestAlias, 'claude-ollama-qwen3-coder-next');
+  assert.equal(haiku.requestAlias, 'ollama-qwen3-coder-next');
   assert.equal(haiku.upstreamModel, 'qwen3-coder-next:cloud');
 
   // Dated Sonnet → fallback alias.
   const sonnet = resolveModelForUpstream('claude-sonnet-4-6-20260131', config);
   assert.equal(sonnet.family, 'sonnet');
-  assert.equal(sonnet.requestAlias, 'claude-ollama-qwen3-coder');
+  assert.equal(sonnet.requestAlias, 'ollama-qwen3-coder');
   assert.equal(sonnet.upstreamModel, 'qwen3-coder:480b-cloud');
 
   // Dated Opus → fallback alias.
   const opus = resolveModelForUpstream('claude-opus-4-7-20260131', config);
   assert.equal(opus.family, 'opus');
-  assert.equal(opus.requestAlias, 'claude-ollama-gpt-oss-120b');
+  assert.equal(opus.requestAlias, 'ollama-gpt-oss-120b');
   assert.equal(opus.upstreamModel, 'gpt-oss:120b-cloud');
 });
 
@@ -1131,9 +1131,9 @@ test('resolveModelForUpstream honors CLAUDE_HAIKU_MODEL/SONNET/OPUS overrides', 
   const config = loadConfig({
     OLLAMA_API_KEY: 'ollama-test',
     DEFAULT_PROVIDER: 'ollama',
-    CLAUDE_HAIKU_MODEL: 'claude-ollama-kimi-k2',
-    CLAUDE_SONNET_MODEL: 'claude-ollama-glm-5.1',
-    CLAUDE_OPUS_MODEL: 'claude-dsv4-pro',
+    CLAUDE_HAIKU_MODEL: 'ollama-kimi-k2',
+    CLAUDE_SONNET_MODEL: 'ollama-glm-5.1',
+    CLAUDE_OPUS_MODEL: 'dsv4-pro',
   });
 
   assert.equal(
@@ -1202,7 +1202,7 @@ test('routes dated Claude haiku request to Ollama via family fallback', async (t
   assert.equal(parsed.model, 'qwen3-coder-next:cloud');
   assert.equal(response.statusCode, 200);
   // Response model is rewritten back to the fallback alias the client effectively asked for.
-  assert.equal(response.body.model, 'claude-ollama-qwen3-coder-next');
+  assert.equal(response.body.model, 'ollama-qwen3-coder-next');
 });
 
 test('/v1/messages/count_tokens is answered locally with a heuristic estimate', async (t) => {
@@ -1264,7 +1264,7 @@ test('with rewriteResponses=false, upstream model ids are passed through unchang
   t.after(() => close(proxy));
 
   const response = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-ollama-qwen3-coder',
+    model: 'ollama-qwen3-coder',
     max_tokens: 16,
     messages: [{ role: 'user', content: 'hi' }],
   });
@@ -1317,15 +1317,15 @@ test('routes HuggingFace requests through the OpenAI-compatible router endpoint 
   // Runtime alias — same shape a user would set via MODEL_MAP env override.
   config.modelMap = {
     ...config.modelMap,
-    'claude-hf-llama-3.3-70b': 'meta-llama/Llama-3.3-70B-Instruct',
+    'hf-llama-3.3-70b': 'meta-llama/Llama-3.3-70B-Instruct',
   };
   config.modelAliases = {
     ...config.modelAliases,
-    'meta-llama/Llama-3.3-70B-Instruct': 'claude-hf-llama-3.3-70b',
+    'meta-llama/Llama-3.3-70B-Instruct': 'hf-llama-3.3-70b',
   };
   config.modelRoutes = {
     ...config.modelRoutes,
-    'claude-hf-llama-3.3-70b': 'huggingface',
+    'hf-llama-3.3-70b': 'huggingface',
   };
 
   const proxy = createProxyServer(config);
@@ -1333,7 +1333,7 @@ test('routes HuggingFace requests through the OpenAI-compatible router endpoint 
   t.after(() => close(proxy));
 
   const response = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-hf-llama-3.3-70b',
+    model: 'hf-llama-3.3-70b',
     max_tokens: 64,
     messages: [{ role: 'user', content: 'hello' }],
   });
@@ -1346,7 +1346,7 @@ test('routes HuggingFace requests through the OpenAI-compatible router endpoint 
   assert.equal(parsedUpstreamBody.max_tokens, 64);
   assert.equal(response.statusCode, 200);
   // Response is rewritten back to the Claude alias the client used.
-  assert.equal(response.body.model, 'claude-hf-llama-3.3-70b');
+  assert.equal(response.body.model, 'hf-llama-3.3-70b');
   assert.equal(response.body.content[0].text, 'hf ok');
 });
 
@@ -1364,15 +1364,15 @@ test('converts HuggingFace streaming responses to Anthropic SSE (runtime alias)'
   });
   config.modelMap = {
     ...config.modelMap,
-    'claude-hf-deepseek-r1': 'deepseek-ai/DeepSeek-R1',
+    'hf-deepseek-r1': 'deepseek-ai/DeepSeek-R1',
   };
   config.modelAliases = {
     ...config.modelAliases,
-    'deepseek-ai/DeepSeek-R1': 'claude-hf-deepseek-r1',
+    'deepseek-ai/DeepSeek-R1': 'hf-deepseek-r1',
   };
   config.modelRoutes = {
     ...config.modelRoutes,
-    'claude-hf-deepseek-r1': 'huggingface',
+    'hf-deepseek-r1': 'huggingface',
   };
 
   const proxy = createProxyServer(config);
@@ -1380,13 +1380,13 @@ test('converts HuggingFace streaming responses to Anthropic SSE (runtime alias)'
   t.after(() => close(proxy));
 
   const response = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-hf-deepseek-r1',
+    model: 'hf-deepseek-r1',
     stream: true,
     messages: [{ role: 'user', content: 'hi' }],
   });
 
   assert.match(response.text, /event: message_start/);
-  assert.match(response.text, /"model":"claude-hf-deepseek-r1"/);
+  assert.match(response.text, /"model":"hf-deepseek-r1"/);
   assert.match(response.text, /"text":"he"/);
   assert.match(response.text, /"text":"llo"/);
   assert.match(response.text, /event: message_stop/);
@@ -1407,7 +1407,7 @@ test('HuggingFace credentials load from HF_API_KEY / HF_TOKEN aliases too', () =
   assert.equal(both.providers.huggingface.upstreamApiKey, 'win');
 });
 
-test('routes NVIDIA NIM requests with bundled claude-nim-* aliases', async (t) => {
+test('routes NVIDIA NIM requests with bundled nim-* aliases', async (t) => {
   let upstreamPath;
   let upstreamAuth;
   let upstreamBody;
@@ -1442,7 +1442,7 @@ test('routes NVIDIA NIM requests with bundled claude-nim-* aliases', async (t) =
   t.after(() => close(proxy));
 
   const response = await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-nim-llama-3.3-70b',
+    model: 'nim-llama-3.3-70b',
     max_tokens: 64,
     messages: [{ role: 'user', content: 'hello' }],
   });
@@ -1452,7 +1452,7 @@ test('routes NVIDIA NIM requests with bundled claude-nim-* aliases', async (t) =
   assert.equal(upstreamAuth, 'Bearer nvidia-test-key');
   assert.equal(parsedUpstreamBody.model, 'meta/llama-3.3-70b-instruct');
   assert.equal(response.statusCode, 200);
-  assert.equal(response.body.model, 'claude-nim-llama-3.3-70b');
+  assert.equal(response.body.model, 'nim-llama-3.3-70b');
   assert.equal(response.body.content[0].text, 'nim ok');
 });
 
@@ -1474,7 +1474,7 @@ test('NVIDIA NIM credentials load from NVAPI_KEY and NIM_API_KEY aliases', () =>
   assert.equal(precedence.providers.nvidia.upstreamApiKey, 'win');
 });
 
-test('/v1/models exposes claude-hf-* and claude-nim-* aliases by default', async (t) => {
+test('/v1/models exposes hf-* and nim-* aliases by default', async (t) => {
   const proxy = createProxyServer(createTestConfig({}));
   await listen(proxy);
   t.after(() => close(proxy));
@@ -1483,24 +1483,29 @@ test('/v1/models exposes claude-hf-* and claude-nim-* aliases by default', async
   assert.equal(response.statusCode, 200);
 
   const ids = response.body.data.map((m) => m.id);
-  const hfIds = ids.filter((id) => id.startsWith('claude-hf-'));
-  const nimIds = ids.filter((id) => id.startsWith('claude-nim-'));
-  const ollamaIds = ids.filter((id) => id.startsWith('claude-ollama-'));
+  const hfIds = ids.filter((id) => id.startsWith('hf-'));
+  const nimIds = ids.filter((id) => id.startsWith('nim-'));
+  const ollamaIds = ids.filter((id) => id.startsWith('ollama-'));
 
-  assert.ok(hfIds.length >= 15, `expected at least 15 claude-hf-* aliases, got ${hfIds.length}`);
-  assert.ok(nimIds.length >= 30, `expected at least 30 claude-nim-* aliases, got ${nimIds.length}`);
-  assert.ok(ollamaIds.length >= 25, `expected at least 25 claude-ollama-* aliases, got ${ollamaIds.length}`);
-  // Total catalog should comfortably exceed the v0.4.3 baseline of 62 (now 116 in v0.5.0).
+  assert.ok(hfIds.length >= 15, `expected at least 15 hf-* aliases, got ${hfIds.length}`);
+  assert.ok(nimIds.length >= 30, `expected at least 30 nim-* aliases, got ${nimIds.length}`);
+  assert.ok(ollamaIds.length >= 25, `expected at least 25 ollama-* aliases, got ${ollamaIds.length}`);
+  // Total catalog: 116 entries (5 Claude family + 111 no-prefix aliases).
   assert.ok(response.body.data.length >= 110, `default catalog size should be >= 110, got ${response.body.data.length}`);
 });
 
-// Claude Desktop's Cowork 3P picker filters models whose display_name contains
-// any foundation-model brand keyword (Llama, Deepseek, Phi, Qwen, Gemma, Granite,
-// Mistral, Mixtral, Nemotron, Yi, Glm, Gpt, Gemini, Kimi, Mimo, Ollama, Hf).
-// `/v1/models` must rewrite those keywords in display_name so every alias remains
-// visible. Model `id` is intentionally left untouched so existing user configs and
-// the Claude Code CLI continue to resolve as before.
-test('/v1/models display_name omits brand keywords the Cowork picker filters', async (t) => {
+// Claude Desktop's Cowork 3P picker hides any /v1/models entry whose id starts
+// with `claude-` AND contains a foundation-model brand substring. It also
+// rejects the `anthropic/*` namespace (v0.5.2 confirmed this empirically — 105
+// `anthropic/<provider>/<model>` ids still failed to surface). Non-Anthropic
+// namespace ids (`deepseek-v4-flash`, `nim-llama-3.1-8b`, `ollama-gpt-oss-20b`)
+// pass through.
+//
+// v0.6.0 drops the `claude-` prefix from every non-Claude-family alias so the
+// picker advertises real upstream names. Only the actual Claude family models
+// (`claude-haiku-*`, `claude-sonnet-*`, `claude-opus-*`) keep the `claude-`
+// prefix.
+test('/v1/models advertises non-Anthropic-namespace ids for all non-Claude models', async (t) => {
   const proxy = createProxyServer(createTestConfig({}));
   await listen(proxy);
   t.after(() => close(proxy));
@@ -1508,50 +1513,100 @@ test('/v1/models display_name omits brand keywords the Cowork picker filters', a
   const response = await getJson(`http://127.0.0.1:${proxy.address().port}/v1/models`);
   assert.equal(response.statusCode, 200);
 
-  // Substrings the picker hides on (lowercased) — every default alias must
-  // come back with a display_name that does NOT contain any of these.
-  const blockedSubstrings = [
-    'deepseek', 'nemotron', 'granite', 'mixtral', 'mistral', 'gemini',
-    'ollama', 'gemma', 'llama', 'kimi', 'mimo', 'qwen',
-  ];
-  // Short keywords that are only blocked at word boundaries — replacement is
-  // word-bounded too, so `Glm51` becomes `ZAi51`, but a legitimate `b` in
-  // `120b` is left alone.
-  const blockedWords = ['glm', 'gpt', 'phi', 'hf', 'yi'];
+  const ids = response.body.data.map((m) => m.id);
 
-  for (const model of response.body.data) {
-    const lower = model.display_name.toLowerCase();
-    for (const needle of blockedSubstrings) {
-      assert.ok(
-        !lower.includes(needle),
-        `${model.id} display_name "${model.display_name}" still contains "${needle}"`,
-      );
-    }
-    const words = lower.split(/\s+/);
-    for (const word of blockedWords) {
-      assert.ok(
-        !words.includes(word),
-        `${model.id} display_name "${model.display_name}" still has bare word "${word}"`,
-      );
+  // Only the five Claude family aliases keep a `claude-` prefix. No gateway
+  // `anthropic/*` ids are advertised (the v0.5.2 approach is reverted).
+  const claudePrefixed = ids.filter((id) => id.startsWith('claude-'));
+  const anthropicNamespaced = ids.filter((id) => id.startsWith('anthropic/'));
+  assert.deepEqual(
+    claudePrefixed.sort(),
+    [
+      'claude-haiku-4-5',
+      'claude-opus-4-1',
+      'claude-opus-4-7',
+      'claude-sonnet-4-5',
+      'claude-sonnet-4-6',
+    ],
+  );
+  assert.equal(anthropicNamespaced.length, 0, 'anthropic/* ids must not be advertised');
+
+  // High-value spot-checks: the screenshot's missing aliases are now back as
+  // real upstream names.
+  const idSet = new Set(ids);
+  for (const expected of [
+    'deepseek-v4-flash', 'deepseek-v4-pro',
+    'kimi-k2.6',
+    'glm-4.5-air', 'glm-4.6', 'glm-4.7', 'glm-5', 'glm-5.1', 'glm51',
+    'mimo-v2-flash', 'mimo-v2-pro', 'mimo-v2.5-pro', 'mimo-v2-omni',
+    'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.5',
+    'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro',
+    'gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview', 'gemini-3.1-pro-preview',
+    'qwen-flash', 'qwen-plus', 'qwen-max',
+    'dsv4-flash', 'dsv4-pro',
+    'ollama-gpt-oss-20b', 'ollama-gpt-oss-120b',
+    'hf-llama-3.1-8b', 'hf-deepseek-r1',
+    'nim-llama-3.1-8b', 'nim-phi-4', 'nim-yi-large',
+    'nim-codestral-22b', 'nim-palmyra-creative-122b',
+    'nim-qwq-32b', 'nim-usdcode-70b',
+    'claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-7',
+  ]) {
+    assert.ok(idSet.has(expected), `expected ${expected} in /v1/models`);
+    // None of the advertised ids should start with `claude-` unless they ARE
+    // actual Claude family models.
+    if (expected.startsWith('claude-')) {
+      assert.match(expected, /^claude-(haiku|sonnet|opus)-/);
     }
   }
 
-  // Specific high-value replacements: these were exactly the entries
-  // missing from the picker in the screenshot that triggered this fix.
-  const byId = new Map(response.body.data.map((m) => [m.id, m]));
-  assert.equal(byId.get('claude-deepseek-v4-flash').display_name, 'DSeek v4 Flash');
-  assert.equal(byId.get('claude-nim-llama-3.1-8b').display_name, 'Nim Lma 3.1 8b');
-  assert.equal(byId.get('claude-nim-phi-4').display_name, 'Nim MsP 4');
-  assert.equal(byId.get('claude-nim-yi-large').display_name, 'Nim Y1 Large');
-  assert.equal(byId.get('claude-glm-4.6').display_name, 'ZAi 4.6');
-  assert.equal(byId.get('claude-gpt-5.5').display_name, 'Oai 5.5');
-  assert.equal(byId.get('claude-hf-llama-3.1-8b').display_name, 'Hr Lma 3.1 8b');
+  // display_name equals id (matching the reference project; the upstream
+  // names are already human-readable).
+  for (const model of response.body.data) {
+    assert.equal(model.display_name, model.id, `display_name should equal id for ${model.id}`);
+  }
+});
 
-  // Known-safe names that survived the v0.5.0 picker are unchanged.
-  assert.equal(byId.get('claude-haiku-4-5').display_name, 'Haiku 4 5');
-  assert.equal(byId.get('claude-opus-4-7').display_name, 'Opus 4 7');
-  assert.equal(byId.get('claude-nim-qwq-32b').display_name, 'Nim Qwq 32b');
-  assert.equal(byId.get('claude-nim-codestral-22b').display_name, 'Nim Codestral 22b');
+// Existing user .env configs and the Claude Code CLI may still send the
+// previous `claude-<provider>-<model>` aliases. resolveModelForUpstream must
+// rewrite them to the new no-prefix id and route to the same upstream.
+test('legacy claude-* aliases still route to the same upstream as their v0.6.0 id', async (t) => {
+  let upstreamModel;
+  const deepseek = http.createServer(async (req, res) => {
+    upstreamModel = JSON.parse(await readBody(req)).model;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      id: 'msg_legacy',
+      model: 'deepseek-v4-flash',
+      content: [{ type: 'text', text: 'ok' }],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+  });
+  await listen(deepseek);
+  t.after(() => close(deepseek));
+
+  const proxy = createProxyServer(createTestConfig({
+    deepseekBaseUrl: `http://127.0.0.1:${deepseek.address().port}`,
+  }));
+  await listen(proxy);
+  t.after(() => close(proxy));
+
+  // New v0.6.0 id resolves directly.
+  await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
+    model: 'deepseek-v4-flash',
+    max_tokens: 8,
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+  assert.equal(upstreamModel, 'deepseek-v4-flash');
+
+  // Legacy claude-* alias resolves to the same upstream via LEGACY_CLAUDE_ALIASES.
+  upstreamModel = null;
+  await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
+    model: 'deepseek-v4-flash',
+    max_tokens: 8,
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+  assert.equal(upstreamModel, 'deepseek-v4-flash');
 });
 
 test('buildTargetUrl does not produce /v1/v1 when the Ollama base URL already ends in /v1', async (t) => {
@@ -1576,7 +1631,7 @@ test('buildTargetUrl does not produce /v1/v1 when the Ollama base URL already en
   t.after(() => close(proxy));
 
   await postJson(`http://127.0.0.1:${proxy.address().port}/v1/messages`, {
-    model: 'claude-ollama-gpt-oss-20b',
+    model: 'ollama-gpt-oss-20b',
     max_tokens: 8,
     messages: [{ role: 'user', content: 'hi' }],
   });
