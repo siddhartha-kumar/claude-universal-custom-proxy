@@ -2,16 +2,19 @@
 
 # Claude Universal Custom Proxy
 
-**A local Anthropic-compatible gateway that maps Claude-style model names
-onto the upstream of your choice — Ollama Cloud, Hugging Face Router,
-NVIDIA NIM, and seven more providers.**
+**A local Anthropic-compatible gateway that lets Claude Desktop's Cowork 3P
+picker and Claude Code CLI route requests to Ollama Cloud, HuggingFace
+Inference Router, NVIDIA NIM, OpenAI, Gemini, Qwen, DeepSeek, Moonshot/Kimi,
+Z.AI / GLM, Xiaomi MiMo, or Anthropic native — 116 model aliases out of the box.**
 
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A518-43853d?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
 [![Signed commits](https://img.shields.io/badge/commits-signed%20(SSH)-success?logo=git)](#security)
-[![Tests](https://img.shields.io/badge/tests-34%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-36%20passing-brightgreen)](#testing)
 [![Models](https://img.shields.io/badge/catalog-116%20models-success)](#model-catalog)
-[![MCPB](https://img.shields.io/badge/Claude%20Desktop-MCPB%20extension-7c3aed)](#claude-desktop-extension)
+[![Providers](https://img.shields.io/badge/providers-11-blue)](#overview)
+[![MCPB](https://img.shields.io/badge/Claude%20Desktop-MCPB%20extension-7c3aed)](#claude-desktop-mcpb)
+[![Version](https://img.shields.io/badge/version-0.6.0-informational)](CHANGELOG.md)
 
 </div>
 
@@ -19,9 +22,9 @@ NVIDIA NIM, and seven more providers.**
 
 ## Overview
 
-Claude Universal Custom Proxy is a lightweight (~1,900 LOC, zero runtime
-dependencies beyond `dotenv`) HTTP service that lets **Claude Desktop's
-Gateway / third-party inference** feature and **Claude Code CLI**
+Claude Universal Custom Proxy is a lightweight (~2,200 LOC of `proxy.mjs`,
+zero runtime dependencies beyond `dotenv`) Node.js HTTP service that lets
+**Claude Desktop's Gateway / Cowork 3P picker** and **Claude Code CLI**
 (`ANTHROPIC_BASE_URL` mode) talk to any of the following upstreams from a
 single local endpoint, selected per request by model name:
 
@@ -138,6 +141,8 @@ Anthropic-shaped while you choose any upstream at runtime by model name.
 
 ### Claude Desktop (MCPB)
 
+#### 1. Build the extension
+
 ```sh
 git clone git@github.com:siddhartha-kumar/claude-universal-custom-proxy.git
 cd claude-universal-custom-proxy
@@ -147,43 +152,67 @@ npm run build:mcpb
 
 Output: `dist/claude-universal-custom-proxy-0.6.0.mcpb`.
 
-1. **Enable Developer Mode** in Claude Desktop (Settings → General, or Help
-   menu — varies by build; restart the app afterwards).
-2. **Install the extension** at Settings → Extensions / Connectors → Advanced
-   settings → Install Extension → select the `.mcpb` from the step above.
-3. **Fill in the install dialog.** A minimal Ollama-Cloud-only setup needs only
-   the highlighted rows below; the others are optional.
+#### 2. Enable Developer Mode in Claude Desktop
 
-   | Field | Required | Value |
-   | --- | :---: | --- |
-   | Gateway Base URL | ✓ | `http://127.0.0.1:8787` |
-   | Local Proxy Port | ✓ | `8787` |
-   | Default Provider | ✓ | `ollama` (or `huggingface`) |
-   | **Ollama Cloud API Key** | ★ | get at [ollama.com/settings/keys](https://ollama.com/settings/keys) |
-   | **HuggingFace API Token** | ★ | get at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
-   | Claude Haiku Fallback Alias | | `ollama-qwen3-coder-next` |
-   | Claude Sonnet Fallback Alias | | `ollama-qwen3-coder` |
-   | Claude Opus Fallback Alias | | `ollama-gpt-oss-120b` |
-   | DeepSeek / Moonshot keys | | _blank unless you use them_ |
-   | Optional Advanced Settings JSON | | `{}` (GLM, Xiaomi, OpenAI, Gemini, Qwen, Anthropic keys live here) |
+Open **Settings → General** (or the Help menu — the exact path varies by
+build) and turn on Developer Mode. Restart Claude Desktop after toggling.
 
-   ★ = at least one inference provider key is required.
+<div align="center">
+  <img src="srcs/claude-developer-mode.png" alt="Claude Desktop — enabling Developer Mode in Settings → General" width="720">
+</div>
 
-4. **Wire the gateway.** Settings → Developer Mode → Third-party inference →
-   Gateway.
+#### 3. Install the MCPB extension
 
-   | Field | Value |
-   | --- | --- |
-   | Provider | `Gateway` |
-   | Gateway base URL | `http://127.0.0.1:8787` |
-   | Gateway API key | any non-empty placeholder (e.g. `dummy-claude-universal-custom-proxy`) |
-   | Gateway auth scheme | `bearer` |
-   | Model list | *Fetch from gateway* — auto-populates 62 aliases |
+**Settings → Extensions / Connectors → Advanced settings → Install
+Extension** and select the `.mcpb` file produced in step 1.
 
-5. **Open a new chat** and pick any `ollama-*` or `hf-*` model.
-   Anything Claude Desktop sends in the background (title generation,
-   `count_tokens`, summarisation) is routed through the same provider via the
-   family-fallback resolver.
+The installer prompts for the configuration below. A minimal Ollama-Cloud-only
+setup needs only the rows marked ★; everything else is optional and can be
+left blank or filled later via **Advanced Settings JSON**.
+
+| Field | Required | Value |
+| --- | :---: | --- |
+| Gateway Base URL | ✓ | `http://127.0.0.1:8787` |
+| Local Proxy Port | ✓ | `8787` |
+| Default Provider | ✓ | `ollama` (or `huggingface`) |
+| **Ollama Cloud API Key** | ★ | get at [ollama.com/settings/keys](https://ollama.com/settings/keys) |
+| **HuggingFace API Token** | ★ | get at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
+| **NVIDIA NIM API Key** | ★ | get at [build.nvidia.com](https://build.nvidia.com/) (free tier) |
+| Claude Haiku Fallback Alias | | `ollama-qwen3-coder-next` *(v0.6.0 default)* |
+| Claude Sonnet Fallback Alias | | `ollama-qwen3-coder` *(v0.6.0 default)* |
+| Claude Opus Fallback Alias | | `ollama-gpt-oss-120b` *(v0.6.0 default)* |
+| DeepSeek / Moonshot keys | | _blank unless you use them_ |
+| Optional Advanced Settings JSON | | `{}` (GLM, Xiaomi, OpenAI, Gemini, Qwen, Anthropic keys live here) |
+
+★ = at least one inference provider key is required.
+
+#### 4. Wire the gateway
+
+**Settings → Developer Mode → Third-party inference → Gateway**:
+
+| Field | Value |
+| --- | --- |
+| Provider | `Gateway` |
+| Gateway base URL | `http://127.0.0.1:8787` |
+| Gateway API key | any non-empty placeholder (e.g. `dummy-claude-universal-custom-proxy`) |
+| Gateway auth scheme | `bearer` |
+| Model list | *Fetch from gateway* — auto-populates all **116 model aliases** |
+
+#### 5. Pick a model and start chatting
+
+Open a new chat, click the model selector at the bottom-right, and pick
+any of the 116 model ids (`hf-llama-3.1-8b`, `ollama-gpt-oss-120b`,
+`nim-codestral-22b`, `deepseek-v4-flash`, `gpt-5.5`, `gemini-2.5-pro`,
+`qwen-max`, …). Background calls Claude Desktop makes for title
+generation, token counting, and summarisation are routed through the
+same provider via the family-fallback resolver, so a single API key is
+enough to use the proxy end-to-end.
+
+> 💡 **All 116 models visible?** That's the v0.6.0 fix. Earlier versions
+> shipped `claude-<provider>-<model>` aliases that Claude Desktop's
+> Cowork 3P picker silently filtered to 11 entries. See
+> [Troubleshooting → Not all models appear](#not-all-models-appear-in-claude-desktops-gateway--cowork-dropdown)
+> for the full story.
 
 ### Standalone
 
@@ -435,8 +464,8 @@ Sign up at [build.nvidia.com](https://build.nvidia.com/), generate a key
 The same upstream id (e.g. `glm-4.6`) may be served by multiple providers. The
 proxy disambiguates by request alias: `glm-4.6` → Z.AI (upstream
 `glm-4.6`), `ollama-glm-4.6` → Ollama Cloud (upstream `glm-4.6:cloud`).
-The same idea covers every `hf-*`, `ollama-*`, `deepseek-*`,
-and `claude-anthropic-*` pair.
+The same idea covers every `hf-*` / `ollama-*` / `nim-*` /
+`deepseek-*` / `claude-*` collision pair.
 
 ## Endpoints
 
@@ -453,19 +482,33 @@ The proxy implements the Anthropic Messages REST surface:
 
 ## Claude Desktop Cowork 3P picker
 
-Claude Desktop's **Cowork 3P** picker reads its model list from `/v1/models`.
-Since v0.4.1 the proxy always returns the full catalog in a single response
-(no pagination), so the picker shows every alias the proxy knows about — all
-116 by default in v0.5.0. Pick any `claude-haiku-*`, `claude-sonnet-*`,
-`claude-opus-*`, `ollama-*`, `deepseek-*`, `glm-*`,
-`mimo-*`, `kimi-*`, `gpt-*`, `gemini-*`, or
-`qwen-*` entry from the dropdown.
+Claude Desktop's **Cowork 3P** picker reads its model list from
+`/v1/models`. The proxy always returns the full catalog in a single
+response (no pagination, since v0.4.1) so the picker shows every alias
+the proxy knows about — all **116 ids** as of v0.6.0:
 
-If the picker looks truncated, click **Refresh** / **Check again** — Claude
-Desktop caches the response and you may be seeing a stale list from a
-previous proxy version. Curling `http://127.0.0.1:8787/v1/models | jq '.data | length'`
-should report 62 (or your custom total if you've added HF aliases via env
-overrides).
+- 5 native Claude family ids: `claude-haiku-4-5`, `claude-sonnet-4-5`,
+  `claude-sonnet-4-6`, `claude-opus-4-1`, `claude-opus-4-7`.
+- 111 no-prefix upstream ids: `deepseek-*`, `kimi-*`, `glm-*`,
+  `mimo-*`, `gpt-*`, `gemini-*`, `qwen-*`, `ollama-*`, `hf-*`,
+  `nim-*`, `dsv4-*`, `glm51`.
+
+> ℹ️ **Why no `claude-*` prefix on non-Anthropic ids?** Empirically, the
+> Cowork 3P picker filters two Anthropic-owned namespaces — `claude-*`
+> (when the id contains a foundation-model brand keyword) and
+> `anthropic/*` (entirely). Stripping the `claude-` prefix from
+> non-Claude-family aliases moves them out of the filtered namespace.
+> See [Troubleshooting](#not-all-models-appear-in-claude-desktops-gateway--cowork-dropdown)
+> for the full debugging trail (v0.5.0 → v0.5.1 → v0.5.2 → v0.6.0).
+
+If the picker still looks truncated after upgrading, click **Refresh /
+Check again** — Claude Desktop caches the model list aggressively.
+Verify with:
+
+```sh
+curl http://127.0.0.1:8787/v1/models | jq '.data | length'
+# expect: 116
+```
 
 ## Claude Code CLI Integration
 
@@ -516,18 +559,21 @@ npm run launch-agent:uninstall
 npm test
 ```
 
-The suite is **81 Node `node:test` cases**, run against ephemeral
+The suite is **36 Node `node:test` cases**, run against ephemeral
 HTTP servers so no upstream credentials are required. Coverage includes:
 
-- Per-provider routing for all 10 providers.
-- Anthropic-shape pass-through.
+- Per-provider routing for all 11 providers (DeepSeek, Moonshot/Kimi,
+  GLM, Xiaomi MiMo, OpenAI, Gemini, Qwen, Ollama Cloud, HuggingFace
+  Router, NVIDIA NIM, Anthropic native).
+- Anthropic Messages pass-through.
 - OpenAI-chat ↔ Anthropic JSON and SSE adapters.
 - Smart Claude model resolution (date stripping, family fallback,
   Anthropic-key-aware fallback gating).
+- v0.6.0 legacy `claude-<provider>-<model>` alias rewrite path.
+- Picker-safe `/v1/models` shape (5 `claude-*` + 111 no-prefix ids).
 - Local `count_tokens` heuristic.
 - `/v1/v1/...` path-duplication guard for `/v1`-suffixed base URLs.
-- `/v1/models` pagination — `limit`, `after_id`, `before_id`, accurate
-  `has_more`, and 404 error envelope shape.
+- `/v1/models/{unknown}` 404 envelope shape.
 - `GET /` and `HEAD /` connectivity probe answered locally (not forwarded
   upstream).
 - `REWRITE_RESPONSES` default and explicit opt-in / opt-out.
