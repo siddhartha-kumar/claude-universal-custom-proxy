@@ -1,14 +1,13 @@
 {
   "name": "claude-universal-custom-proxy",
-  "version": "0.6.0",
-  "description": "Local Anthropic Messages gateway that routes Claude-style model names to Ollama Cloud, Hugging Face Inference Router, NVIDIA NIM, OpenAI, Gemini, Qwen, DeepSeek, Moonshot/Kimi, Z.AI/GLM, Xiaomi MiMo, or Anthropic upstreams with smart Claude family fallback.",
+  "version": "0.10.0",
+  "description": "Local Anthropic Messages gateway that routes Claude-style model names to free models on Ollama Cloud, Hugging Face Inference Router, and NVIDIA NIM (with optional DeepSeek, Moonshot/Kimi, Z.AI/GLM, Xiaomi MiMo, OpenAI, Gemini, Qwen, Anthropic upstreams) and a smart Claude family fallback. Educational project.",
   "private": true,
   "type": "module",
   "keywords": [
     "claude",
     "claude-desktop",
     "claude-code",
-    "mcpb",
     "gateway",
     "proxy",
     "anthropic",
@@ -32,17 +31,15 @@
     "qwen"
   ],
   "scripts": {
-    "build:mcpb": "node scripts/build-mcpb.mjs",
-    "launch-agent:install": "node scripts/install-launch-agent.mjs",
-    "launch-agent:uninstall": "node scripts/uninstall-launch-agent.mjs",
     "start": "node proxy.mjs",
-    "test": "node --test"
+    "test": "node --test test/",
+    "models:discover": "node scripts/discover-models.mjs",
+    "models:probe": "node scripts/probe-models.mjs"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "archiver": "^8.0.0",
     "dotenv": "^17.4.2"
   }
 }

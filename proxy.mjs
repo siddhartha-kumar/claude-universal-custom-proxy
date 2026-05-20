@@ -1,4 +1,31 @@
 #!/usr/bin/env node
+// =============================================================================
+//  Claude Universal Custom Proxy
+//
+//  Local HTTP gateway that lets Claude Desktop / Claude Code talk to
+//  Anthropic-compatible AND OpenAI-compatible upstream providers (Ollama Cloud,
+//  HuggingFace Inference Router, NVIDIA NIM, DeepSeek, Moonshot/Kimi, Z.AI/GLM,
+//  Xiaomi MiMo, OpenAI, Gemini, Qwen, Anthropic).
+//
+//  ── Design notes ───────────────────────────────────────────────────────────
+//  All model metadata lives in one registry: NATIVE_ANTHROPIC_MODELS (the real
+//  Claude family) + PROVIDER_MODELS (every free/served model on Ollama Cloud,
+//  HuggingFace Inference Router, and NVIDIA NIM). The routing tables (modelMap,
+//  modelRoutes, modelAliases, visibleModels) are derived from that registry at
+//  module load, so adding a model means editing one list.
+//
+//  Each provider model is advertised under a single brand alias:
+//    ollama-<name>   e.g. ollama-deepseek-v3.1, ollama-qwen3-coder-480b
+//    hf-<name>       e.g. hf-deepseek-r1, hf-llama-3.1-8b-instruct
+//    nim-<name>      e.g. nim-llama-3.1-8b-instruct, nim-gpt-oss-120b
+//  No claude- prefix on third-party models, so Claude Desktop's Cowork picker
+//  (which hides claude-* ids containing a foundation-model brand keyword) shows
+//  every one of them, and they're findable by typing the model name.
+//
+//  The catalog is generated from each provider's live /v1/models endpoint plus a
+//  per-model chat probe — see scripts/probe-models.mjs + generate-registry.mjs.
+//  Subscription-gated and non-chat (embedding/guard/rerank) models are excluded.
+// =============================================================================
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -9,22 +36,16 @@ import { Transform } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Service identity — kept in lockstep with package.json / manifest.json /
-// server/index.mjs by the manifest test.
-// ─────────────────────────────────────────────────────────────────────────────
 export const SERVER_NAME = 'claude-universal-custom-proxy';
-export const SERVER_VERSION = '0.6.0';
+export const SERVER_VERSION = '0.10.0';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Debug logging — gated by DEBUG_PROXY=true (default off)
+//  Debug logging — gated by DEBUG_PROXY=true (default off)
 // ─────────────────────────────────────────────────────────────────────────────
 const DEBUG = String(process.env.DEBUG_PROXY || '').toLowerCase() === 'true';
 
 function debugLog(...args) {
-  if (DEBUG) {
-    console.log(...args);
-  }
+  if (DEBUG) console.log(...args);
 }
 
 function debugBlock(title, lines) {
@@ -35,562 +56,303 @@ function debugBlock(title, lines) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Default model map: request id → upstream model id.
-//
-// Empirically, Claude Desktop's Cowork 3P picker hides any /v1/models entry
-// whose id starts with `claude-` or `anthropic/` and contains a
-// foundation-model brand keyword (Llama, Deepseek, Phi, Qwen, etc.). Both the
-// v0.5.1 display_name rewrite and the v0.5.2 `anthropic/<provider>/<model>`
-// gateway-id approach still hit that filter and only 11/116 entries survived.
-//
-// v0.6.0 follows wanghao9610/claude-model-proxy: every non-Claude-family
-// request id is the real upstream model name with no `claude-` prefix
-// (`deepseek-v4-flash`, `gpt-5.5`, `gemini-2.5-pro`). Provider-prefixed
-// aliases for Ollama Cloud / HuggingFace / NVIDIA NIM keep a short provider
-// segment (`ollama-`, `hf-`, `nim-`) for disambiguation. Only the actual
-// Claude family models keep the `claude-` prefix.
-//
-// LEGACY_CLAUDE_ALIASES (below) maps the previous `claude-<provider>-<model>`
-// names to the new ids so existing user `.env` configs, the Claude Code CLI,
-// and the MCPB install dialog defaults keep routing to the same upstream
-// without any user-side change.
+//  Constants
 // ─────────────────────────────────────────────────────────────────────────────
-export const DEFAULT_MODEL_MAP = Object.freeze({
-  // DeepSeek Anthropic-compatible
-  'deepseek-v4-flash': 'deepseek-v4-flash',
-  'deepseek-v4-pro': 'deepseek-v4-pro',
-  // Moonshot/Kimi Anthropic-compatible
-  'kimi-k2.6': 'kimi-k2.6',
-  // Z.AI / GLM Anthropic-compatible
-  'glm-4.5-air': 'glm-4.5-air',
-  'glm-4.6': 'glm-4.6',
-  'glm-4.7': 'glm-4.7',
-  'glm-5': 'glm-5',
-  'glm-5.1': 'glm-5.1',
-  // Xiaomi MiMo Anthropic-compatible
-  'mimo-v2-flash': 'mimo-v2-flash',
-  'mimo-v2-pro': 'mimo-v2-pro',
-  'mimo-v2.5-pro': 'mimo-v2.5-pro',
-  'mimo-v2-omni': 'mimo-v2-omni',
-  // OpenAI Chat Completions
-  'gpt-5.5': 'gpt-5.5',
-  'gpt-5.4': 'gpt-5.4',
-  'gpt-5.4-mini': 'gpt-5.4-mini',
-  // Gemini OpenAI-compatible
-  'gemini-3.1-pro-preview': 'gemini-3.1-pro-preview',
-  'gemini-3-flash-preview': 'gemini-3-flash-preview',
-  'gemini-2.5-pro': 'gemini-2.5-pro',
-  'gemini-2.5-flash': 'gemini-2.5-flash',
-  'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite-preview',
-  'gemini-2.0-flash': 'gemini-2.0-flash',
-  // Qwen (DashScope) OpenAI-compatible
-  'qwen-flash': 'qwen-flash',
-  'qwen-plus': 'qwen-plus',
-  'qwen-max': 'qwen-max',
-  // Ollama Cloud (Turbo) — hosted at ollama.com, no local install required.
-  // Ollama Cloud upstreams use `-cloud` for sized models, `:cloud` for unsized.
-  // Bare ids would hit local weights and fail on the hosted Ollama Cloud service.
-  'ollama-gpt-oss-20b': 'gpt-oss:20b-cloud',
-  'ollama-gpt-oss-120b': 'gpt-oss:120b-cloud',
-  'ollama-deepseek-v3.1': 'deepseek-v3.1:671b-cloud',
-  'ollama-deepseek-v3.2': 'deepseek-v3.2:cloud',
-  'ollama-deepseek-v4-flash': 'deepseek-v4-flash:cloud',
-  'ollama-deepseek-v4-pro': 'deepseek-v4-pro:cloud',
-  'ollama-qwen3-coder': 'qwen3-coder:480b-cloud',
-  'ollama-qwen3-coder-next': 'qwen3-coder-next:cloud',
-  'ollama-qwen3-vl': 'qwen3-vl:235b-cloud',
-  'ollama-qwen3-vl-instruct': 'qwen3-vl:235b-instruct-cloud',
-  'ollama-qwen3-next': 'qwen3-next:80b-cloud',
-  'ollama-qwen3.5': 'qwen3.5:cloud',
-  'ollama-kimi-k2': 'kimi-k2:1t-cloud',
-  'ollama-kimi-k2-thinking': 'kimi-k2-thinking:cloud',
-  'ollama-kimi-k2.6': 'kimi-k2.6:cloud',
-  'ollama-glm-4.6': 'glm-4.6:cloud',
-  'ollama-glm-4.7': 'glm-4.7:cloud',
-  'ollama-glm-5': 'glm-5:cloud',
-  'ollama-glm-5.1': 'glm-5.1:cloud',
-  'ollama-minimax-m2': 'minimax-m2:cloud',
-  'ollama-minimax-m2.1': 'minimax-m2.1:cloud',
-  'ollama-minimax-m2.5': 'minimax-m2.5:cloud',
-  'ollama-minimax-m2.7': 'minimax-m2.7:cloud',
-  'ollama-nemotron-3-nano': 'nemotron-3-nano:30b-cloud',
-  'ollama-nemotron-3-super': 'nemotron-3-super:cloud',
-  'ollama-devstral-small-2': 'devstral-small-2:24b-cloud',
-  'ollama-ministral-3': 'ministral-3:8b-cloud',
-  'ollama-gemma4-31b': 'gemma4:31b-cloud',
-  'ollama-gemini-3-flash-preview': 'gemini-3-flash-preview:cloud',
-  'ollama-rnj-1': 'rnj-1:8b-cloud',
-  // Short Ollama Cloud aliases (no `ollama-` prefix; pre-v0.6.0 short forms).
-  'dsv4-flash': 'deepseek-v4-flash:cloud',
-  'dsv4-pro': 'deepseek-v4-pro:cloud',
-  'glm51': 'glm-5.1:cloud',
-  // HuggingFace Inference Router aliases (free tier — needs HF_TOKEN)
-  'hf-llama-3.1-8b': 'meta-llama/Llama-3.1-8B-Instruct',
-  'hf-llama-3.1-70b': 'meta-llama/Llama-3.1-70B-Instruct',
-  'hf-llama-3.3-70b': 'meta-llama/Llama-3.3-70B-Instruct',
-  'hf-llama-4-maverick': 'meta-llama/Llama-4-Maverick-17B-128E-Instruct',
-  'hf-llama-4-scout': 'meta-llama/Llama-4-Scout-17B-16E-Instruct',
-  'hf-qwen-2.5-coder-32b': 'Qwen/Qwen2.5-Coder-32B-Instruct',
-  'hf-qwen-2.5-72b': 'Qwen/Qwen2.5-72B-Instruct',
-  'hf-qwen3-coder-480b': 'Qwen/Qwen3-Coder-480B-A35B-Instruct',
-  'hf-qwen3-next-80b': 'Qwen/Qwen3-Next-80B-A3B-Instruct',
-  'hf-deepseek-r1': 'deepseek-ai/DeepSeek-R1',
-  'hf-deepseek-v3.1': 'deepseek-ai/DeepSeek-V3.1',
-  'hf-deepseek-v3.2': 'deepseek-ai/DeepSeek-V3.2',
-  'hf-deepseek-r1-distill-70b': 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B',
-  'hf-glm-4.6': 'zai-org/GLM-4.6',
-  'hf-glm-5': 'zai-org/GLM-5',
-  'hf-gpt-oss-120b': 'openai/gpt-oss-120b',
-  'hf-gpt-oss-20b': 'openai/gpt-oss-20b',
-  'hf-kimi-k2.6': 'moonshotai/Kimi-K2.6',
-  // NVIDIA NIM aliases — free at build.nvidia.com with an nvapi- key
-  'nim-llama-3.1-8b': 'meta/llama-3.1-8b-instruct',
-  'nim-llama-3.1-70b': 'meta/llama-3.1-70b-instruct',
-  'nim-llama-3.1-405b': 'meta/llama-3.1-405b-instruct',
-  'nim-llama-3.3-70b': 'meta/llama-3.3-70b-instruct',
-  'nim-llama-4-maverick': 'meta/llama-4-maverick-17b-128e-instruct',
-  'nim-llama-4-scout': 'meta/llama-4-scout-17b-16e-instruct',
-  'nim-nemotron-nano-8b': 'nvidia/llama-3.1-nemotron-nano-8b-v1',
-  'nim-nemotron-super-49b': 'nvidia/llama-3.3-nemotron-super-49b-v1',
-  'nim-nemotron-70b': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  'nim-nemotron-340b': 'nvidia/nemotron-4-340b-instruct',
-  'nim-usdcode-70b': 'nvidia/usdcode-llama-3.1-70b-instruct',
-  'nim-deepseek-r1': 'deepseek-ai/deepseek-r1',
-  'nim-deepseek-r1-distill-70b': 'deepseek-ai/deepseek-r1-distill-llama-70b',
-  'nim-deepseek-r1-distill-8b': 'deepseek-ai/deepseek-r1-distill-llama-8b',
-  'nim-deepseek-v3.1': 'deepseek-ai/deepseek-v3.1',
-  'nim-deepseek-v3.2': 'deepseek-ai/deepseek-v3.2',
-  'nim-deepseek-v4-pro': 'deepseek-ai/deepseek-v4-pro',
-  'nim-deepseek-v4-flash': 'deepseek-ai/deepseek-v4-flash',
-  'nim-qwen-2.5-coder-32b': 'qwen/qwen2.5-coder-32b-instruct',
-  'nim-qwen-2.5-coder-7b': 'qwen/qwen2.5-coder-7b-instruct',
-  'nim-qwen-2.5-72b': 'qwen/qwen2.5-72b-instruct',
-  'nim-qwen-3-235b': 'qwen/qwen3-235b-a22b',
-  'nim-qwq-32b': 'qwen/qwq-32b',
-  'nim-mixtral-8x22b': 'mistralai/mixtral-8x22b-instruct-v0.1',
-  'nim-mixtral-8x7b': 'mistralai/mixtral-8x7b-instruct-v0.1',
-  'nim-mistral-7b': 'mistralai/mistral-7b-instruct-v0.3',
-  'nim-mistral-nemo-12b': 'mistralai/mistral-nemo-12b-instruct',
-  'nim-codestral-22b': 'mistralai/codestral-22b-v0.1',
-  'nim-phi-4': 'microsoft/phi-4',
-  'nim-phi-3-medium': 'microsoft/phi-3-medium-4k-instruct',
-  'nim-phi-3.5-mini': 'microsoft/phi-3.5-mini-instruct',
-  'nim-gemma-2-27b': 'google/gemma-2-27b-it',
-  'nim-gemma-2-9b': 'google/gemma-2-9b-it',
-  'nim-granite-3-8b': 'ibm-granite/granite-3.1-8b-instruct',
-  'nim-palmyra-creative-122b': 'writer/palmyra-creative-122b',
-  'nim-yi-large': '01-ai/yi-large',
-  // Native Anthropic Claude (forwarded to Anthropic Messages when ANTHROPIC_API_KEY is set)
-  'claude-haiku-4-5': 'claude-haiku-4-5',
-  'claude-sonnet-4-6': 'claude-sonnet-4-6',
-  'claude-opus-4-7': 'claude-opus-4-7',
-  'claude-sonnet-4-5': 'claude-sonnet-4-5',
-  'claude-opus-4-1': 'claude-opus-4-1',
-});
-
-// Backward-compatibility map: previous `claude-<provider>-<model>` alias → new
-// no-prefix id. resolveModelForUpstream rewrites the inbound `model` field
-// through this map before routing, so user .env values like
-// `ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-ollama-qwen3-coder-next` and Claude
-// Code CLI integrations from earlier versions keep working unchanged.
-export const LEGACY_CLAUDE_ALIASES = Object.freeze({
-  'claude-deepseek-v4-flash': 'deepseek-v4-flash',
-  'claude-deepseek-v4-pro': 'deepseek-v4-pro',
-  'claude-kimi-k2.6': 'kimi-k2.6',
-  'claude-glm-4.5-air': 'glm-4.5-air',
-  'claude-glm-4.6': 'glm-4.6',
-  'claude-glm-4.7': 'glm-4.7',
-  'claude-glm-5': 'glm-5',
-  'claude-glm-5.1': 'glm-5.1',
-  'claude-mimo-v2-flash': 'mimo-v2-flash',
-  'claude-mimo-v2-pro': 'mimo-v2-pro',
-  'claude-mimo-v2.5-pro': 'mimo-v2.5-pro',
-  'claude-mimo-v2-omni': 'mimo-v2-omni',
-  'claude-gpt-5.5': 'gpt-5.5',
-  'claude-gpt-5.4': 'gpt-5.4',
-  'claude-gpt-5.4-mini': 'gpt-5.4-mini',
-  'claude-gemini-3.1-pro-preview': 'gemini-3.1-pro-preview',
-  'claude-gemini-3-flash-preview': 'gemini-3-flash-preview',
-  'claude-gemini-2.5-pro': 'gemini-2.5-pro',
-  'claude-gemini-2.5-flash': 'gemini-2.5-flash',
-  'claude-gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite-preview',
-  'claude-gemini-2.0-flash': 'gemini-2.0-flash',
-  'claude-qwen-flash': 'qwen-flash',
-  'claude-qwen-plus': 'qwen-plus',
-  'claude-qwen-max': 'qwen-max',
-  'claude-ollama-gpt-oss-20b': 'ollama-gpt-oss-20b',
-  'claude-ollama-gpt-oss-120b': 'ollama-gpt-oss-120b',
-  'claude-ollama-deepseek-v3.1': 'ollama-deepseek-v3.1',
-  'claude-ollama-deepseek-v3.2': 'ollama-deepseek-v3.2',
-  'claude-ollama-deepseek-v4-flash': 'ollama-deepseek-v4-flash',
-  'claude-ollama-deepseek-v4-pro': 'ollama-deepseek-v4-pro',
-  'claude-ollama-qwen3-coder': 'ollama-qwen3-coder',
-  'claude-ollama-qwen3-coder-next': 'ollama-qwen3-coder-next',
-  'claude-ollama-qwen3-vl': 'ollama-qwen3-vl',
-  'claude-ollama-qwen3-vl-instruct': 'ollama-qwen3-vl-instruct',
-  'claude-ollama-qwen3-next': 'ollama-qwen3-next',
-  'claude-ollama-qwen3.5': 'ollama-qwen3.5',
-  'claude-ollama-kimi-k2': 'ollama-kimi-k2',
-  'claude-ollama-kimi-k2-thinking': 'ollama-kimi-k2-thinking',
-  'claude-ollama-kimi-k2.6': 'ollama-kimi-k2.6',
-  'claude-ollama-glm-4.6': 'ollama-glm-4.6',
-  'claude-ollama-glm-4.7': 'ollama-glm-4.7',
-  'claude-ollama-glm-5': 'ollama-glm-5',
-  'claude-ollama-glm-5.1': 'ollama-glm-5.1',
-  'claude-ollama-minimax-m2': 'ollama-minimax-m2',
-  'claude-ollama-minimax-m2.1': 'ollama-minimax-m2.1',
-  'claude-ollama-minimax-m2.5': 'ollama-minimax-m2.5',
-  'claude-ollama-minimax-m2.7': 'ollama-minimax-m2.7',
-  'claude-ollama-nemotron-3-nano': 'ollama-nemotron-3-nano',
-  'claude-ollama-nemotron-3-super': 'ollama-nemotron-3-super',
-  'claude-ollama-devstral-small-2': 'ollama-devstral-small-2',
-  'claude-ollama-ministral-3': 'ollama-ministral-3',
-  'claude-ollama-gemma4-31b': 'ollama-gemma4-31b',
-  'claude-ollama-gemini-3-flash-preview': 'ollama-gemini-3-flash-preview',
-  'claude-ollama-rnj-1': 'ollama-rnj-1',
-  'claude-dsv4-flash': 'dsv4-flash',
-  'claude-dsv4-pro': 'dsv4-pro',
-  'claude-glm51': 'glm51',
-  'claude-hf-llama-3.1-8b': 'hf-llama-3.1-8b',
-  'claude-hf-llama-3.1-70b': 'hf-llama-3.1-70b',
-  'claude-hf-llama-3.3-70b': 'hf-llama-3.3-70b',
-  'claude-hf-llama-4-maverick': 'hf-llama-4-maverick',
-  'claude-hf-llama-4-scout': 'hf-llama-4-scout',
-  'claude-hf-qwen-2.5-coder-32b': 'hf-qwen-2.5-coder-32b',
-  'claude-hf-qwen-2.5-72b': 'hf-qwen-2.5-72b',
-  'claude-hf-qwen3-coder-480b': 'hf-qwen3-coder-480b',
-  'claude-hf-qwen3-next-80b': 'hf-qwen3-next-80b',
-  'claude-hf-deepseek-r1': 'hf-deepseek-r1',
-  'claude-hf-deepseek-v3.1': 'hf-deepseek-v3.1',
-  'claude-hf-deepseek-v3.2': 'hf-deepseek-v3.2',
-  'claude-hf-deepseek-r1-distill-70b': 'hf-deepseek-r1-distill-70b',
-  'claude-hf-glm-4.6': 'hf-glm-4.6',
-  'claude-hf-glm-5': 'hf-glm-5',
-  'claude-hf-gpt-oss-120b': 'hf-gpt-oss-120b',
-  'claude-hf-gpt-oss-20b': 'hf-gpt-oss-20b',
-  'claude-hf-kimi-k2.6': 'hf-kimi-k2.6',
-  'claude-nim-llama-3.1-8b': 'nim-llama-3.1-8b',
-  'claude-nim-llama-3.1-70b': 'nim-llama-3.1-70b',
-  'claude-nim-llama-3.1-405b': 'nim-llama-3.1-405b',
-  'claude-nim-llama-3.3-70b': 'nim-llama-3.3-70b',
-  'claude-nim-llama-4-maverick': 'nim-llama-4-maverick',
-  'claude-nim-llama-4-scout': 'nim-llama-4-scout',
-  'claude-nim-nemotron-nano-8b': 'nim-nemotron-nano-8b',
-  'claude-nim-nemotron-super-49b': 'nim-nemotron-super-49b',
-  'claude-nim-nemotron-70b': 'nim-nemotron-70b',
-  'claude-nim-nemotron-340b': 'nim-nemotron-340b',
-  'claude-nim-usdcode-70b': 'nim-usdcode-70b',
-  'claude-nim-deepseek-r1': 'nim-deepseek-r1',
-  'claude-nim-deepseek-r1-distill-70b': 'nim-deepseek-r1-distill-70b',
-  'claude-nim-deepseek-r1-distill-8b': 'nim-deepseek-r1-distill-8b',
-  'claude-nim-deepseek-v3.1': 'nim-deepseek-v3.1',
-  'claude-nim-deepseek-v3.2': 'nim-deepseek-v3.2',
-  'claude-nim-deepseek-v4-pro': 'nim-deepseek-v4-pro',
-  'claude-nim-deepseek-v4-flash': 'nim-deepseek-v4-flash',
-  'claude-nim-qwen-2.5-coder-32b': 'nim-qwen-2.5-coder-32b',
-  'claude-nim-qwen-2.5-coder-7b': 'nim-qwen-2.5-coder-7b',
-  'claude-nim-qwen-2.5-72b': 'nim-qwen-2.5-72b',
-  'claude-nim-qwen-3-235b': 'nim-qwen-3-235b',
-  'claude-nim-qwq-32b': 'nim-qwq-32b',
-  'claude-nim-mixtral-8x22b': 'nim-mixtral-8x22b',
-  'claude-nim-mixtral-8x7b': 'nim-mixtral-8x7b',
-  'claude-nim-mistral-7b': 'nim-mistral-7b',
-  'claude-nim-mistral-nemo-12b': 'nim-mistral-nemo-12b',
-  'claude-nim-codestral-22b': 'nim-codestral-22b',
-  'claude-nim-phi-4': 'nim-phi-4',
-  'claude-nim-phi-3-medium': 'nim-phi-3-medium',
-  'claude-nim-phi-3.5-mini': 'nim-phi-3.5-mini',
-  'claude-nim-gemma-2-27b': 'nim-gemma-2-27b',
-  'claude-nim-gemma-2-9b': 'nim-gemma-2-9b',
-  'claude-nim-granite-3-8b': 'nim-granite-3-8b',
-  'claude-nim-palmyra-creative-122b': 'nim-palmyra-creative-122b',
-  'claude-nim-yi-large': 'nim-yi-large',
-});
-
-// Upstream model id → request id, used to rewrite the `model` field in
-// upstream responses back to the no-`claude-` prefixed name the client asked
-// for. Mirror image of DEFAULT_MODEL_MAP.
-export const DEFAULT_MODEL_ALIASES = Object.freeze({
-  'deepseek-v4-flash': 'deepseek-v4-flash',
-  'deepseek-v4-pro': 'deepseek-v4-pro',
-  'kimi-k2.6': 'kimi-k2.6',
-  'glm-4.5-air': 'glm-4.5-air',
-  'glm-4.6': 'glm-4.6',
-  'glm-4.7': 'glm-4.7',
-  'glm-5': 'glm-5',
-  'glm-5.1': 'glm-5.1',
-  'mimo-v2-flash': 'mimo-v2-flash',
-  'mimo-v2-pro': 'mimo-v2-pro',
-  'mimo-v2.5-pro': 'mimo-v2.5-pro',
-  'mimo-v2-omni': 'mimo-v2-omni',
-  'gpt-5.5': 'gpt-5.5',
-  'gpt-5.4': 'gpt-5.4',
-  'gpt-5.4-mini': 'gpt-5.4-mini',
-  'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite-preview',
-  'gemini-3-flash-preview': 'gemini-3-flash-preview',
-  'gemini-3.1-pro-preview': 'gemini-3.1-pro-preview',
-  'gemini-2.5-pro': 'gemini-2.5-pro',
-  'gemini-2.5-flash': 'gemini-2.5-flash',
-  'gemini-2.0-flash': 'gemini-2.0-flash',
-  'qwen-flash': 'qwen-flash',
-  'qwen-plus': 'qwen-plus',
-  'qwen-max': 'qwen-max',
-  'gpt-oss:20b-cloud': 'ollama-gpt-oss-20b',
-  'gpt-oss:120b-cloud': 'ollama-gpt-oss-120b',
-  'deepseek-v3.1:671b-cloud': 'ollama-deepseek-v3.1',
-  'deepseek-v3.2:cloud': 'ollama-deepseek-v3.2',
-  'deepseek-v4-flash:cloud': 'dsv4-flash',
-  'deepseek-v4-pro:cloud': 'dsv4-pro',
-  'qwen3-coder:480b-cloud': 'ollama-qwen3-coder',
-  'qwen3-coder-next:cloud': 'ollama-qwen3-coder-next',
-  'qwen3-vl:235b-cloud': 'ollama-qwen3-vl',
-  'qwen3-vl:235b-instruct-cloud': 'ollama-qwen3-vl-instruct',
-  'qwen3-next:80b-cloud': 'ollama-qwen3-next',
-  'qwen3.5:cloud': 'ollama-qwen3.5',
-  'kimi-k2:1t-cloud': 'ollama-kimi-k2',
-  'kimi-k2-thinking:cloud': 'ollama-kimi-k2-thinking',
-  'kimi-k2.6:cloud': 'ollama-kimi-k2.6',
-  'glm-4.6:cloud': 'ollama-glm-4.6',
-  'glm-4.7:cloud': 'ollama-glm-4.7',
-  'glm-5:cloud': 'ollama-glm-5',
-  'glm-5.1:cloud': 'glm51',
-  'minimax-m2:cloud': 'ollama-minimax-m2',
-  'minimax-m2.1:cloud': 'ollama-minimax-m2.1',
-  'minimax-m2.5:cloud': 'ollama-minimax-m2.5',
-  'minimax-m2.7:cloud': 'ollama-minimax-m2.7',
-  'nemotron-3-nano:30b-cloud': 'ollama-nemotron-3-nano',
-  'nemotron-3-super:cloud': 'ollama-nemotron-3-super',
-  'devstral-small-2:24b-cloud': 'ollama-devstral-small-2',
-  'ministral-3:8b-cloud': 'ollama-ministral-3',
-  'gemma4:31b-cloud': 'ollama-gemma4-31b',
-  'gemini-3-flash-preview:cloud': 'ollama-gemini-3-flash-preview',
-  'rnj-1:8b-cloud': 'ollama-rnj-1',
-  // HuggingFace Router reverse aliases
-  'meta-llama/Llama-3.1-8B-Instruct': 'hf-llama-3.1-8b',
-  'meta-llama/Llama-3.1-70B-Instruct': 'hf-llama-3.1-70b',
-  'meta-llama/Llama-3.3-70B-Instruct': 'hf-llama-3.3-70b',
-  'meta-llama/Llama-4-Maverick-17B-128E-Instruct': 'hf-llama-4-maverick',
-  'meta-llama/Llama-4-Scout-17B-16E-Instruct': 'hf-llama-4-scout',
-  'Qwen/Qwen2.5-Coder-32B-Instruct': 'hf-qwen-2.5-coder-32b',
-  'Qwen/Qwen2.5-72B-Instruct': 'hf-qwen-2.5-72b',
-  'Qwen/Qwen3-Coder-480B-A35B-Instruct': 'hf-qwen3-coder-480b',
-  'Qwen/Qwen3-Next-80B-A3B-Instruct': 'hf-qwen3-next-80b',
-  'deepseek-ai/DeepSeek-R1': 'hf-deepseek-r1',
-  'deepseek-ai/DeepSeek-V3.1': 'hf-deepseek-v3.1',
-  'deepseek-ai/DeepSeek-V3.2': 'hf-deepseek-v3.2',
-  'deepseek-ai/DeepSeek-R1-Distill-Llama-70B': 'hf-deepseek-r1-distill-70b',
-  'zai-org/GLM-4.6': 'hf-glm-4.6',
-  'zai-org/GLM-5': 'hf-glm-5',
-  'openai/gpt-oss-120b': 'hf-gpt-oss-120b',
-  'openai/gpt-oss-20b': 'hf-gpt-oss-20b',
-  'moonshotai/Kimi-K2.6': 'hf-kimi-k2.6',
-  // NVIDIA NIM reverse aliases
-  'meta/llama-3.1-8b-instruct': 'nim-llama-3.1-8b',
-  'meta/llama-3.1-70b-instruct': 'nim-llama-3.1-70b',
-  'meta/llama-3.1-405b-instruct': 'nim-llama-3.1-405b',
-  'meta/llama-3.3-70b-instruct': 'nim-llama-3.3-70b',
-  'meta/llama-4-maverick-17b-128e-instruct': 'nim-llama-4-maverick',
-  'meta/llama-4-scout-17b-16e-instruct': 'nim-llama-4-scout',
-  'nvidia/llama-3.1-nemotron-nano-8b-v1': 'nim-nemotron-nano-8b',
-  'nvidia/llama-3.3-nemotron-super-49b-v1': 'nim-nemotron-super-49b',
-  'nvidia/llama-3.1-nemotron-70b-instruct': 'nim-nemotron-70b',
-  'nvidia/nemotron-4-340b-instruct': 'nim-nemotron-340b',
-  'nvidia/usdcode-llama-3.1-70b-instruct': 'nim-usdcode-70b',
-  'deepseek-ai/deepseek-r1': 'nim-deepseek-r1',
-  'deepseek-ai/deepseek-r1-distill-llama-70b': 'nim-deepseek-r1-distill-70b',
-  'deepseek-ai/deepseek-r1-distill-llama-8b': 'nim-deepseek-r1-distill-8b',
-  'deepseek-ai/deepseek-v3.1': 'nim-deepseek-v3.1',
-  'deepseek-ai/deepseek-v3.2': 'nim-deepseek-v3.2',
-  'deepseek-ai/deepseek-v4-pro': 'nim-deepseek-v4-pro',
-  'deepseek-ai/deepseek-v4-flash': 'nim-deepseek-v4-flash',
-  'qwen/qwen2.5-coder-32b-instruct': 'nim-qwen-2.5-coder-32b',
-  'qwen/qwen2.5-coder-7b-instruct': 'nim-qwen-2.5-coder-7b',
-  'qwen/qwen2.5-72b-instruct': 'nim-qwen-2.5-72b',
-  'qwen/qwen3-235b-a22b': 'nim-qwen-3-235b',
-  'qwen/qwq-32b': 'nim-qwq-32b',
-  'mistralai/mixtral-8x22b-instruct-v0.1': 'nim-mixtral-8x22b',
-  'mistralai/mixtral-8x7b-instruct-v0.1': 'nim-mixtral-8x7b',
-  'mistralai/mistral-7b-instruct-v0.3': 'nim-mistral-7b',
-  'mistralai/mistral-nemo-12b-instruct': 'nim-mistral-nemo-12b',
-  'mistralai/codestral-22b-v0.1': 'nim-codestral-22b',
-  'microsoft/phi-4': 'nim-phi-4',
-  'microsoft/phi-3-medium-4k-instruct': 'nim-phi-3-medium',
-  'microsoft/phi-3.5-mini-instruct': 'nim-phi-3.5-mini',
-  'google/gemma-2-27b-it': 'nim-gemma-2-27b',
-  'google/gemma-2-9b-it': 'nim-gemma-2-9b',
-  'ibm-granite/granite-3.1-8b-instruct': 'nim-granite-3-8b',
-  'writer/palmyra-creative-122b': 'nim-palmyra-creative-122b',
-  '01-ai/yi-large': 'nim-yi-large',
-  'claude-haiku-4-5': 'claude-haiku-4-5',
-  'claude-sonnet-4-6': 'claude-sonnet-4-6',
-  'claude-opus-4-7': 'claude-opus-4-7',
-  'claude-sonnet-4-5': 'claude-sonnet-4-5',
-  'claude-opus-4-1': 'claude-opus-4-1',
-});
-
-// Request id → provider name. Provider names are normalized at load.
-export const DEFAULT_MODEL_ROUTES = Object.freeze({
-  'deepseek-v4-flash': 'deepseek',
-  'deepseek-v4-pro': 'deepseek',
-  'kimi-k2.6': 'moonshot',
-  'glm-4.5-air': 'glm',
-  'glm-4.6': 'glm',
-  'glm-4.7': 'glm',
-  'glm-5': 'glm',
-  'glm-5.1': 'glm',
-  'mimo-v2-flash': 'xiaomi',
-  'mimo-v2-pro': 'xiaomi',
-  'mimo-v2.5-pro': 'xiaomi',
-  'mimo-v2-omni': 'xiaomi',
-  'gpt-5.5': 'openai',
-  'gpt-5.4': 'openai',
-  'gpt-5.4-mini': 'openai',
-  'gemini-3.1-pro-preview': 'gemini',
-  'gemini-3-flash-preview': 'gemini',
-  'gemini-2.5-pro': 'gemini',
-  'gemini-2.5-flash': 'gemini',
-  'gemini-3.1-flash-lite-preview': 'gemini',
-  'gemini-2.0-flash': 'gemini',
-  'qwen-flash': 'qwen',
-  'qwen-plus': 'qwen',
-  'qwen-max': 'qwen',
-  'ollama-gpt-oss-20b': 'ollama',
-  'ollama-gpt-oss-120b': 'ollama',
-  'ollama-deepseek-v3.1': 'ollama',
-  'ollama-deepseek-v3.2': 'ollama',
-  'ollama-deepseek-v4-flash': 'ollama',
-  'ollama-deepseek-v4-pro': 'ollama',
-  'ollama-qwen3-coder': 'ollama',
-  'ollama-qwen3-coder-next': 'ollama',
-  'ollama-qwen3-vl': 'ollama',
-  'ollama-qwen3-vl-instruct': 'ollama',
-  'ollama-qwen3-next': 'ollama',
-  'ollama-qwen3.5': 'ollama',
-  'ollama-kimi-k2': 'ollama',
-  'ollama-kimi-k2-thinking': 'ollama',
-  'ollama-kimi-k2.6': 'ollama',
-  'ollama-glm-4.6': 'ollama',
-  'ollama-glm-4.7': 'ollama',
-  'ollama-glm-5': 'ollama',
-  'ollama-glm-5.1': 'ollama',
-  'ollama-minimax-m2': 'ollama',
-  'ollama-minimax-m2.1': 'ollama',
-  'ollama-minimax-m2.5': 'ollama',
-  'ollama-minimax-m2.7': 'ollama',
-  'ollama-nemotron-3-nano': 'ollama',
-  'ollama-nemotron-3-super': 'ollama',
-  'ollama-devstral-small-2': 'ollama',
-  'ollama-ministral-3': 'ollama',
-  'ollama-gemma4-31b': 'ollama',
-  'ollama-gemini-3-flash-preview': 'ollama',
-  'ollama-rnj-1': 'ollama',
-  'dsv4-flash': 'ollama',
-  'dsv4-pro': 'ollama',
-  'glm51': 'ollama',
-  // HuggingFace Router routes
-  'hf-llama-3.1-8b': 'huggingface',
-  'hf-llama-3.1-70b': 'huggingface',
-  'hf-llama-3.3-70b': 'huggingface',
-  'hf-llama-4-maverick': 'huggingface',
-  'hf-llama-4-scout': 'huggingface',
-  'hf-qwen-2.5-coder-32b': 'huggingface',
-  'hf-qwen-2.5-72b': 'huggingface',
-  'hf-qwen3-coder-480b': 'huggingface',
-  'hf-qwen3-next-80b': 'huggingface',
-  'hf-deepseek-r1': 'huggingface',
-  'hf-deepseek-v3.1': 'huggingface',
-  'hf-deepseek-v3.2': 'huggingface',
-  'hf-deepseek-r1-distill-70b': 'huggingface',
-  'hf-glm-4.6': 'huggingface',
-  'hf-glm-5': 'huggingface',
-  'hf-gpt-oss-120b': 'huggingface',
-  'hf-gpt-oss-20b': 'huggingface',
-  'hf-kimi-k2.6': 'huggingface',
-  // NVIDIA NIM routes
-  'nim-llama-3.1-8b': 'nvidia',
-  'nim-llama-3.1-70b': 'nvidia',
-  'nim-llama-3.1-405b': 'nvidia',
-  'nim-llama-3.3-70b': 'nvidia',
-  'nim-llama-4-maverick': 'nvidia',
-  'nim-llama-4-scout': 'nvidia',
-  'nim-nemotron-nano-8b': 'nvidia',
-  'nim-nemotron-super-49b': 'nvidia',
-  'nim-nemotron-70b': 'nvidia',
-  'nim-nemotron-340b': 'nvidia',
-  'nim-usdcode-70b': 'nvidia',
-  'nim-deepseek-r1': 'nvidia',
-  'nim-deepseek-r1-distill-70b': 'nvidia',
-  'nim-deepseek-r1-distill-8b': 'nvidia',
-  'nim-deepseek-v3.1': 'nvidia',
-  'nim-deepseek-v3.2': 'nvidia',
-  'nim-deepseek-v4-pro': 'nvidia',
-  'nim-deepseek-v4-flash': 'nvidia',
-  'nim-qwen-2.5-coder-32b': 'nvidia',
-  'nim-qwen-2.5-coder-7b': 'nvidia',
-  'nim-qwen-2.5-72b': 'nvidia',
-  'nim-qwen-3-235b': 'nvidia',
-  'nim-qwq-32b': 'nvidia',
-  'nim-mixtral-8x22b': 'nvidia',
-  'nim-mixtral-8x7b': 'nvidia',
-  'nim-mistral-7b': 'nvidia',
-  'nim-mistral-nemo-12b': 'nvidia',
-  'nim-codestral-22b': 'nvidia',
-  'nim-phi-4': 'nvidia',
-  'nim-phi-3-medium': 'nvidia',
-  'nim-phi-3.5-mini': 'nvidia',
-  'nim-gemma-2-27b': 'nvidia',
-  'nim-gemma-2-9b': 'nvidia',
-  'nim-granite-3-8b': 'nvidia',
-  'nim-palmyra-creative-122b': 'nvidia',
-  'nim-yi-large': 'nvidia',
-  'claude-haiku-4-5': 'anthropic',
-  'claude-sonnet-4-6': 'anthropic',
-  'claude-opus-4-7': 'anthropic',
-  'claude-sonnet-4-5': 'anthropic',
-  'claude-opus-4-1': 'anthropic',
-});
-
-// Claude family fallbacks — used when an incoming model is a dated/unknown
-// Claude model AND the Anthropic provider has no API key configured.
-// Each value is a request id that exists in DEFAULT_MODEL_MAP.
-export const DEFAULT_CLAUDE_FAMILY_FALLBACK = Object.freeze({
-  haiku: 'ollama-qwen3-coder-next',
-  sonnet: 'ollama-qwen3-coder',
-  opus: 'ollama-gpt-oss-120b',
-});
-
 const HOP_BY_HOP_HEADERS = new Set([
-  'connection',
-  'keep-alive',
-  'proxy-authenticate',
-  'proxy-authorization',
-  'te',
-  'trailer',
-  'transfer-encoding',
-  'upgrade',
+  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+  'te', 'trailer', 'transfer-encoding', 'upgrade',
 ]);
 
-const MODEL_VALUE_KEYS = new Set([
-  'default_model',
-  'id',
-  'model',
-  'model_id',
-  'name',
-]);
-
-const MODEL_ARRAY_KEYS = new Set([
-  'inferenceModels',
-  'inference_models',
-  'models',
-]);
-
+const MODEL_VALUE_KEYS = new Set(['default_model', 'id', 'model', 'model_id', 'name']);
+const MODEL_ARRAY_KEYS = new Set(['inferenceModels', 'inference_models', 'models']);
 const DEFAULT_REQUEST_BODY_LIMIT_BYTES = 50 * 1024 * 1024;
 
 const CLAUDE_DATED_SUFFIX = /-(\d{8})$/;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Smart model resolution — handles dated Claude names + family fallbacks.
+//  Model registry — single source of truth.
+//
+//  Every entry is { provider, alias, upstream }:
+//    provider – key into the providers config (ollama | huggingface | nvidia | …)
+//    alias    – the id advertised in /v1/models and shown in the model picker
+//    upstream – the exact model id sent to the provider's API
+//
+//  The catalog below was generated by querying each provider's own /v1/models
+//  endpoint and then probing a 1-token chat completion per model
+//  (scripts/probe-models.mjs + scripts/generate-registry.mjs). Only models the
+//  provider actually serves AND that responded 200 on the free tier are listed.
+//  Subscription-gated Ollama Cloud models (HTTP 403) and non-chat models
+//  (embeddings, rerankers, safety guards, OCR/parse) are excluded.
+//
+//  Refresh:  npm run models:probe   (writes scripts/.model-probe.json)
+//            npm run models:discover (lists each provider's live catalog)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Native Anthropic family — reachable only when ANTHROPIC_API_KEY is set.
+// Otherwise DEFAULT_CLAUDE_FAMILY_FALLBACK reroutes haiku/sonnet/opus (and the
+// dated/internal variants Claude Desktop emits) to a free Ollama Cloud alias.
+const NATIVE_ANTHROPIC_MODELS = Object.freeze([
+  'claude-haiku-4-5',
+  'claude-sonnet-4-6',
+  'claude-opus-4-7',
+  'claude-sonnet-4-5',
+  'claude-opus-4-1',
+]);
+
+const PROVIDER_MODELS = Object.freeze([
+// ===== Ollama Cloud (free tier — probe-verified 200) =====
+  { provider: 'ollama', alias: 'ollama-cogito-2.1-671b', upstream: "cogito-2.1:671b" },
+  { provider: 'ollama', alias: 'ollama-devstral-2-123b', upstream: "devstral-2:123b" },
+  { provider: 'ollama', alias: 'ollama-devstral-small-2-24b', upstream: "devstral-small-2:24b" },
+  { provider: 'ollama', alias: 'ollama-gemma3-12b', upstream: "gemma3:12b" },
+  { provider: 'ollama', alias: 'ollama-gemma3-27b', upstream: "gemma3:27b" },
+  { provider: 'ollama', alias: 'ollama-gemma3-4b', upstream: "gemma3:4b" },
+  { provider: 'ollama', alias: 'ollama-gemma4-31b', upstream: "gemma4:31b" },
+  { provider: 'ollama', alias: 'ollama-glm-4.6', upstream: "glm-4.6" },
+  { provider: 'ollama', alias: 'ollama-glm-4.7', upstream: "glm-4.7" },
+  { provider: 'ollama', alias: 'ollama-gpt-oss-120b', upstream: "gpt-oss:120b" },
+  { provider: 'ollama', alias: 'ollama-gpt-oss-20b', upstream: "gpt-oss:20b" },
+  { provider: 'ollama', alias: 'ollama-minimax-m2', upstream: "minimax-m2" },
+  { provider: 'ollama', alias: 'ollama-minimax-m2.1', upstream: "minimax-m2.1" },
+  { provider: 'ollama', alias: 'ollama-minimax-m2.5', upstream: "minimax-m2.5" },
+  { provider: 'ollama', alias: 'ollama-ministral-3-14b', upstream: "ministral-3:14b" },
+  { provider: 'ollama', alias: 'ollama-ministral-3-3b', upstream: "ministral-3:3b" },
+  { provider: 'ollama', alias: 'ollama-ministral-3-8b', upstream: "ministral-3:8b" },
+  { provider: 'ollama', alias: 'ollama-nemotron-3-nano-30b', upstream: "nemotron-3-nano:30b" },
+  { provider: 'ollama', alias: 'ollama-nemotron-3-super', upstream: "nemotron-3-super" },
+  { provider: 'ollama', alias: 'ollama-qwen3-coder-next', upstream: "qwen3-coder-next" },
+  { provider: 'ollama', alias: 'ollama-qwen3-coder-480b', upstream: "qwen3-coder:480b" },
+  { provider: 'ollama', alias: 'ollama-qwen3-next-80b', upstream: "qwen3-next:80b" },
+  { provider: 'ollama', alias: 'ollama-qwen3-vl-235b', upstream: "qwen3-vl:235b" },
+  { provider: 'ollama', alias: 'ollama-qwen3-vl-235b-instruct', upstream: "qwen3-vl:235b-instruct" },
+  { provider: 'ollama', alias: 'ollama-rnj-1-8b', upstream: "rnj-1:8b" },
+
+// ===== HuggingFace Inference Router (served catalog, chat-capable) =====
+  { provider: 'huggingface', alias: 'hf-aya-expanse-32b', upstream: "CohereLabs/aya-expanse-32b" },
+  { provider: 'huggingface', alias: 'hf-aya-vision-32b', upstream: "CohereLabs/aya-vision-32b" },
+  { provider: 'huggingface', alias: 'hf-c4ai-command-a-03-2025', upstream: "CohereLabs/c4ai-command-a-03-2025" },
+  { provider: 'huggingface', alias: 'hf-c4ai-command-r-08-2024', upstream: "CohereLabs/c4ai-command-r-08-2024" },
+  { provider: 'huggingface', alias: 'hf-c4ai-command-r7b-12-2024', upstream: "CohereLabs/c4ai-command-r7b-12-2024" },
+  { provider: 'huggingface', alias: 'hf-c4ai-command-r7b-arabic-02-2025', upstream: "CohereLabs/c4ai-command-r7b-arabic-02-2025" },
+  { provider: 'huggingface', alias: 'hf-command-a-reasoning-08-2025', upstream: "CohereLabs/command-a-reasoning-08-2025" },
+  { provider: 'huggingface', alias: 'hf-tiny-aya-earth', upstream: "CohereLabs/tiny-aya-earth" },
+  { provider: 'huggingface', alias: 'hf-tiny-aya-fire', upstream: "CohereLabs/tiny-aya-fire" },
+  { provider: 'huggingface', alias: 'hf-tiny-aya-global', upstream: "CohereLabs/tiny-aya-global" },
+  { provider: 'huggingface', alias: 'hf-tiny-aya-water', upstream: "CohereLabs/tiny-aya-water" },
+  { provider: 'huggingface', alias: 'hf-rnj-1-instruct', upstream: "EssentialAI/rnj-1-instruct" },
+  { provider: 'huggingface', alias: 'hf-minimax-m1-80k', upstream: "MiniMaxAI/MiniMax-M1-80k" },
+  { provider: 'huggingface', alias: 'hf-minimax-m2', upstream: "MiniMaxAI/MiniMax-M2" },
+  { provider: 'huggingface', alias: 'hf-minimax-m2.1', upstream: "MiniMaxAI/MiniMax-M2.1" },
+  { provider: 'huggingface', alias: 'hf-minimax-m2.5', upstream: "MiniMaxAI/MiniMax-M2.5" },
+  { provider: 'huggingface', alias: 'hf-minimax-m2.7', upstream: "MiniMaxAI/MiniMax-M2.7" },
+  { provider: 'huggingface', alias: 'hf-hermes-2-pro-llama-3-8b', upstream: "NousResearch/Hermes-2-Pro-Llama-3-8B" },
+  { provider: 'huggingface', alias: 'hf-qwq-32b', upstream: "Qwen/QwQ-32B" },
+  { provider: 'huggingface', alias: 'hf-qwen2.5-72b-instruct', upstream: "Qwen/Qwen2.5-72B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen2.5-7b-instruct', upstream: "Qwen/Qwen2.5-7B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen2.5-coder-32b-instruct', upstream: "Qwen/Qwen2.5-Coder-32B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen2.5-coder-3b-instruct', upstream: "Qwen/Qwen2.5-Coder-3B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen2.5-coder-7b-instruct', upstream: "Qwen/Qwen2.5-Coder-7B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen2.5-vl-72b-instruct', upstream: "Qwen/Qwen2.5-VL-72B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen3-14b', upstream: "Qwen/Qwen3-14B" },
+  { provider: 'huggingface', alias: 'hf-qwen3-235b-a22b', upstream: "Qwen/Qwen3-235B-A22B" },
+  { provider: 'huggingface', alias: 'hf-qwen3-235b-a22b-instruct-2507', upstream: "Qwen/Qwen3-235B-A22B-Instruct-2507" },
+  { provider: 'huggingface', alias: 'hf-qwen3-235b-a22b-thinking-2507', upstream: "Qwen/Qwen3-235B-A22B-Thinking-2507" },
+  { provider: 'huggingface', alias: 'hf-qwen3-30b-a3b', upstream: "Qwen/Qwen3-30B-A3B" },
+  { provider: 'huggingface', alias: 'hf-qwen3-32b', upstream: "Qwen/Qwen3-32B" },
+  { provider: 'huggingface', alias: 'hf-qwen3-4b-instruct-2507', upstream: "Qwen/Qwen3-4B-Instruct-2507" },
+  { provider: 'huggingface', alias: 'hf-qwen3-4b-thinking-2507', upstream: "Qwen/Qwen3-4B-Thinking-2507" },
+  { provider: 'huggingface', alias: 'hf-qwen3-8b', upstream: "Qwen/Qwen3-8B" },
+  { provider: 'huggingface', alias: 'hf-qwen3-coder-30b-a3b-instruct', upstream: "Qwen/Qwen3-Coder-30B-A3B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen3-coder-480b-a35b-instruct', upstream: "Qwen/Qwen3-Coder-480B-A35B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen3-coder-480b-a35b-instruct-fp8', upstream: "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8" },
+  { provider: 'huggingface', alias: 'hf-qwen3-coder-next', upstream: "Qwen/Qwen3-Coder-Next" },
+  { provider: 'huggingface', alias: 'hf-qwen3-next-80b-a3b-instruct', upstream: "Qwen/Qwen3-Next-80B-A3B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen3-next-80b-a3b-thinking', upstream: "Qwen/Qwen3-Next-80B-A3B-Thinking" },
+  { provider: 'huggingface', alias: 'hf-qwen3-vl-235b-a22b-instruct', upstream: "Qwen/Qwen3-VL-235B-A22B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen3-vl-235b-a22b-thinking', upstream: "Qwen/Qwen3-VL-235B-A22B-Thinking" },
+  { provider: 'huggingface', alias: 'hf-qwen3-vl-30b-a3b-instruct', upstream: "Qwen/Qwen3-VL-30B-A3B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen3-vl-30b-a3b-thinking', upstream: "Qwen/Qwen3-VL-30B-A3B-Thinking" },
+  { provider: 'huggingface', alias: 'hf-qwen3-vl-8b-instruct', upstream: "Qwen/Qwen3-VL-8B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-qwen3.5-122b-a10b', upstream: "Qwen/Qwen3.5-122B-A10B" },
+  { provider: 'huggingface', alias: 'hf-qwen3.5-27b', upstream: "Qwen/Qwen3.5-27B" },
+  { provider: 'huggingface', alias: 'hf-qwen3.5-35b-a3b', upstream: "Qwen/Qwen3.5-35B-A3B" },
+  { provider: 'huggingface', alias: 'hf-qwen3.5-397b-a17b', upstream: "Qwen/Qwen3.5-397B-A17B" },
+  { provider: 'huggingface', alias: 'hf-qwen3.5-9b', upstream: "Qwen/Qwen3.5-9B" },
+  { provider: 'huggingface', alias: 'hf-qwen3.6-35b-a3b', upstream: "Qwen/Qwen3.6-35B-A3B" },
+  { provider: 'huggingface', alias: 'hf-l3-70b-euryale-v2.1', upstream: "Sao10K/L3-70B-Euryale-v2.1" },
+  { provider: 'huggingface', alias: 'hf-l3-8b-lunaris-v1', upstream: "Sao10K/L3-8B-Lunaris-v1" },
+  { provider: 'huggingface', alias: 'hf-l3-8b-stheno-v3.2', upstream: "Sao10K/L3-8B-Stheno-v3.2" },
+  { provider: 'huggingface', alias: 'hf-mimo-v2-flash', upstream: "XiaomiMiMo/MiMo-V2-Flash" },
+  { provider: 'huggingface', alias: 'hf-gemma-sea-lion-v4-27b-it', upstream: "aisingapore/Gemma-SEA-LION-v4-27B-IT" },
+  { provider: 'huggingface', alias: 'hf-qwen-sea-lion-v4-32b-it', upstream: "aisingapore/Qwen-SEA-LION-v4-32B-IT" },
+  { provider: 'huggingface', alias: 'hf-olmo-3-7b-instruct', upstream: "allenai/Olmo-3-7B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-wizardlm-2-8x22b', upstream: "alpindale/WizardLM-2-8x22B" },
+  { provider: 'huggingface', alias: 'hf-ernie-4.5-300b-a47b-base-pt', upstream: "baidu/ERNIE-4.5-300B-A47B-Base-PT" },
+  { provider: 'huggingface', alias: 'hf-ernie-4.5-vl-424b-a47b-base-pt', upstream: "baidu/ERNIE-4.5-VL-424B-A47B-Base-PT" },
+  { provider: 'huggingface', alias: 'hf-cogito-671b-v2.1', upstream: "deepcogito/cogito-671b-v2.1" },
+  { provider: 'huggingface', alias: 'hf-cogito-671b-v2.1-fp8', upstream: "deepcogito/cogito-671b-v2.1-FP8" },
+  { provider: 'huggingface', alias: 'hf-deepseek-prover-v2-671b', upstream: "deepseek-ai/DeepSeek-Prover-V2-671B" },
+  { provider: 'huggingface', alias: 'hf-deepseek-r1', upstream: "deepseek-ai/DeepSeek-R1" },
+  { provider: 'huggingface', alias: 'hf-deepseek-r1-0528', upstream: "deepseek-ai/DeepSeek-R1-0528" },
+  { provider: 'huggingface', alias: 'hf-deepseek-r1-distill-llama-70b', upstream: "deepseek-ai/DeepSeek-R1-Distill-Llama-70B" },
+  { provider: 'huggingface', alias: 'hf-deepseek-r1-distill-llama-8b', upstream: "deepseek-ai/DeepSeek-R1-Distill-Llama-8B" },
+  { provider: 'huggingface', alias: 'hf-deepseek-r1-distill-qwen-1.5b', upstream: "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B" },
+  { provider: 'huggingface', alias: 'hf-deepseek-r1-distill-qwen-14b', upstream: "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B" },
+  { provider: 'huggingface', alias: 'hf-deepseek-r1-distill-qwen-32b', upstream: "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B" },
+  { provider: 'huggingface', alias: 'hf-deepseek-r1-distill-qwen-7b', upstream: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B" },
+  { provider: 'huggingface', alias: 'hf-deepseek-v3', upstream: "deepseek-ai/DeepSeek-V3" },
+  { provider: 'huggingface', alias: 'hf-deepseek-v3-0324', upstream: "deepseek-ai/DeepSeek-V3-0324" },
+  { provider: 'huggingface', alias: 'hf-deepseek-v3.1', upstream: "deepseek-ai/DeepSeek-V3.1" },
+  { provider: 'huggingface', alias: 'hf-deepseek-v3.1-terminus', upstream: "deepseek-ai/DeepSeek-V3.1-Terminus" },
+  { provider: 'huggingface', alias: 'hf-deepseek-v3.2', upstream: "deepseek-ai/DeepSeek-V3.2" },
+  { provider: 'huggingface', alias: 'hf-deepseek-v3.2-exp', upstream: "deepseek-ai/DeepSeek-V3.2-Exp" },
+  { provider: 'huggingface', alias: 'hf-deepseek-v4-flash', upstream: "deepseek-ai/DeepSeek-V4-Flash" },
+  { provider: 'huggingface', alias: 'hf-deepseek-v4-pro', upstream: "deepseek-ai/DeepSeek-V4-Pro" },
+  { provider: 'huggingface', alias: 'hf-dictalm-3.0-24b-thinking', upstream: "dicta-il/DictaLM-3.0-24B-Thinking" },
+  { provider: 'huggingface', alias: 'hf-gemma-3-27b-it', upstream: "google/gemma-3-27b-it" },
+  { provider: 'huggingface', alias: 'hf-gemma-3n-e4b-it', upstream: "google/gemma-3n-E4B-it" },
+  { provider: 'huggingface', alias: 'hf-gemma-4-26b-a4b-it', upstream: "google/gemma-4-26B-A4B-it" },
+  { provider: 'huggingface', alias: 'hf-gemma-4-31b-it', upstream: "google/gemma-4-31B-it" },
+  { provider: 'huggingface', alias: 'hf-ling-2.6-1t', upstream: "inclusionAI/Ling-2.6-1T" },
+  { provider: 'huggingface', alias: 'hf-arch-router-1.5b', upstream: "katanemo/Arch-Router-1.5B" },
+  { provider: 'huggingface', alias: 'hf-llama-3.1-70b-instruct', upstream: "meta-llama/Llama-3.1-70B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-llama-3.1-8b-instruct', upstream: "meta-llama/Llama-3.1-8B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-llama-3.2-1b-instruct', upstream: "meta-llama/Llama-3.2-1B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-llama-3.3-70b-instruct', upstream: "meta-llama/Llama-3.3-70B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-llama-4-maverick-17b-128e-instruct', upstream: "meta-llama/Llama-4-Maverick-17B-128E-Instruct" },
+  { provider: 'huggingface', alias: 'hf-llama-4-maverick-17b-128e-instruct-fp8', upstream: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8" },
+  { provider: 'huggingface', alias: 'hf-llama-4-scout-17b-16e-instruct', upstream: "meta-llama/Llama-4-Scout-17B-16E-Instruct" },
+  { provider: 'huggingface', alias: 'hf-meta-llama-3-70b-instruct', upstream: "meta-llama/Meta-Llama-3-70B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-meta-llama-3-8b-instruct', upstream: "meta-llama/Meta-Llama-3-8B-Instruct" },
+  { provider: 'huggingface', alias: 'hf-kimi-k2-instruct', upstream: "moonshotai/Kimi-K2-Instruct" },
+  { provider: 'huggingface', alias: 'hf-kimi-k2-instruct-0905', upstream: "moonshotai/Kimi-K2-Instruct-0905" },
+  { provider: 'huggingface', alias: 'hf-kimi-k2-thinking', upstream: "moonshotai/Kimi-K2-Thinking" },
+  { provider: 'huggingface', alias: 'hf-kimi-k2.5', upstream: "moonshotai/Kimi-K2.5" },
+  { provider: 'huggingface', alias: 'hf-kimi-k2.6', upstream: "moonshotai/Kimi-K2.6" },
+  { provider: 'huggingface', alias: 'hf-gpt-oss-120b', upstream: "openai/gpt-oss-120b" },
+  { provider: 'huggingface', alias: 'hf-gpt-oss-20b', upstream: "openai/gpt-oss-20b" },
+  { provider: 'huggingface', alias: 'hf-gemma-4-31b-it-pearl', upstream: "pearl-ai/Gemma-4-31B-it-pearl" },
+  { provider: 'huggingface', alias: 'hf-step-3.5-flash', upstream: "stepfun-ai/Step-3.5-Flash" },
+  { provider: 'huggingface', alias: 'hf-apertus-70b-instruct-2509', upstream: "swiss-ai/Apertus-70B-Instruct-2509" },
+  { provider: 'huggingface', alias: 'hf-apertus-8b-instruct-2509', upstream: "swiss-ai/Apertus-8B-Instruct-2509" },
+  { provider: 'huggingface', alias: 'hf-eurollm-22b-instruct-2512', upstream: "utter-project/EuroLLM-22B-Instruct-2512" },
+  { provider: 'huggingface', alias: 'hf-autoglm-phone-9b-multilingual', upstream: "zai-org/AutoGLM-Phone-9B-Multilingual" },
+  { provider: 'huggingface', alias: 'hf-glm-4-32b-0414', upstream: "zai-org/GLM-4-32B-0414" },
+  { provider: 'huggingface', alias: 'hf-glm-4.5', upstream: "zai-org/GLM-4.5" },
+  { provider: 'huggingface', alias: 'hf-glm-4.5-air', upstream: "zai-org/GLM-4.5-Air" },
+  { provider: 'huggingface', alias: 'hf-glm-4.5v', upstream: "zai-org/GLM-4.5V" },
+  { provider: 'huggingface', alias: 'hf-glm-4.5v-fp8', upstream: "zai-org/GLM-4.5V-FP8" },
+  { provider: 'huggingface', alias: 'hf-glm-4.6', upstream: "zai-org/GLM-4.6" },
+  { provider: 'huggingface', alias: 'hf-glm-4.6-fp8', upstream: "zai-org/GLM-4.6-FP8" },
+  { provider: 'huggingface', alias: 'hf-glm-4.6v', upstream: "zai-org/GLM-4.6V" },
+  { provider: 'huggingface', alias: 'hf-glm-4.6v-fp8', upstream: "zai-org/GLM-4.6V-FP8" },
+  { provider: 'huggingface', alias: 'hf-glm-4.6v-flash', upstream: "zai-org/GLM-4.6V-Flash" },
+  { provider: 'huggingface', alias: 'hf-glm-4.7', upstream: "zai-org/GLM-4.7" },
+  { provider: 'huggingface', alias: 'hf-glm-4.7-fp8', upstream: "zai-org/GLM-4.7-FP8" },
+  { provider: 'huggingface', alias: 'hf-glm-4.7-flash', upstream: "zai-org/GLM-4.7-Flash" },
+  { provider: 'huggingface', alias: 'hf-glm-5', upstream: "zai-org/GLM-5" },
+  { provider: 'huggingface', alias: 'hf-glm-5.1', upstream: "zai-org/GLM-5.1" },
+  { provider: 'huggingface', alias: 'hf-glm-5.1-fp8', upstream: "zai-org/GLM-5.1-FP8" },
+
+// ===== NVIDIA NIM (free tier) =====
+  { provider: 'nvidia', alias: 'nim-dracarys-llama-3.1-70b-instruct', upstream: "abacusai/dracarys-llama-3.1-70b-instruct" },
+  { provider: 'nvidia', alias: 'nim-gemma-2-2b-it', upstream: "google/gemma-2-2b-it" },
+  { provider: 'nvidia', alias: 'nim-gemma-3n-e2b-it', upstream: "google/gemma-3n-e2b-it" },
+  { provider: 'nvidia', alias: 'nim-gemma-3n-e4b-it', upstream: "google/gemma-3n-e4b-it" },
+  { provider: 'nvidia', alias: 'nim-llama-3.1-70b-instruct', upstream: "meta/llama-3.1-70b-instruct" },
+  { provider: 'nvidia', alias: 'nim-llama-3.1-8b-instruct', upstream: "meta/llama-3.1-8b-instruct" },
+  { provider: 'nvidia', alias: 'nim-llama-3.2-11b-vision-instruct', upstream: "meta/llama-3.2-11b-vision-instruct" },
+  { provider: 'nvidia', alias: 'nim-llama-3.2-1b-instruct', upstream: "meta/llama-3.2-1b-instruct" },
+  { provider: 'nvidia', alias: 'nim-llama-3.2-3b-instruct', upstream: "meta/llama-3.2-3b-instruct" },
+  { provider: 'nvidia', alias: 'nim-llama-3.3-70b-instruct', upstream: "meta/llama-3.3-70b-instruct" },
+  { provider: 'nvidia', alias: 'nim-llama-4-maverick-17b-128e-instruct', upstream: "meta/llama-4-maverick-17b-128e-instruct" },
+  { provider: 'nvidia', alias: 'nim-ministral-14b-instruct-2512', upstream: "mistralai/ministral-14b-instruct-2512" },
+  { provider: 'nvidia', alias: 'nim-mistral-large-3-675b-instruct-2512', upstream: "mistralai/mistral-large-3-675b-instruct-2512" },
+  { provider: 'nvidia', alias: 'nim-mistral-medium-3.5-128b', upstream: "mistralai/mistral-medium-3.5-128b" },
+  { provider: 'nvidia', alias: 'nim-mistral-nemotron', upstream: "mistralai/mistral-nemotron" },
+  { provider: 'nvidia', alias: 'nim-mistral-small-4-119b-2603', upstream: "mistralai/mistral-small-4-119b-2603" },
+  { provider: 'nvidia', alias: 'nim-mixtral-8x22b-instruct-v0.1', upstream: "mistralai/mixtral-8x22b-instruct-v0.1" },
+  { provider: 'nvidia', alias: 'nim-mixtral-8x7b-instruct-v0.1', upstream: "mistralai/mixtral-8x7b-instruct-v0.1" },
+  { provider: 'nvidia', alias: 'nim-kimi-k2.6', upstream: "moonshotai/kimi-k2.6" },
+  { provider: 'nvidia', alias: 'nim-ising-calibration-1-35b-a3b', upstream: "nvidia/ising-calibration-1-35b-a3b" },
+  { provider: 'nvidia', alias: 'nim-llama-3.1-nemotron-nano-8b-v1', upstream: "nvidia/llama-3.1-nemotron-nano-8b-v1" },
+  { provider: 'nvidia', alias: 'nim-llama-3.1-nemotron-nano-vl-8b-v1', upstream: "nvidia/llama-3.1-nemotron-nano-vl-8b-v1" },
+  { provider: 'nvidia', alias: 'nim-llama-3.3-nemotron-super-49b-v1.5', upstream: "nvidia/llama-3.3-nemotron-super-49b-v1.5" },
+  { provider: 'nvidia', alias: 'nim-nemotron-3-nano-30b-a3b', upstream: "nvidia/nemotron-3-nano-30b-a3b" },
+  { provider: 'nvidia', alias: 'nim-nemotron-3-nano-omni-30b-a3b-reasoning', upstream: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" },
+  { provider: 'nvidia', alias: 'nim-nemotron-3-super-120b-a12b', upstream: "nvidia/nemotron-3-super-120b-a12b" },
+  { provider: 'nvidia', alias: 'nim-nemotron-mini-4b-instruct', upstream: "nvidia/nemotron-mini-4b-instruct" },
+  { provider: 'nvidia', alias: 'nim-nemotron-nano-12b-v2-vl', upstream: "nvidia/nemotron-nano-12b-v2-vl" },
+  { provider: 'nvidia', alias: 'nim-nvidia-nemotron-nano-9b-v2', upstream: "nvidia/nvidia-nemotron-nano-9b-v2" },
+  { provider: 'nvidia', alias: 'nim-gpt-oss-120b', upstream: "openai/gpt-oss-120b" },
+  { provider: 'nvidia', alias: 'nim-gpt-oss-20b', upstream: "openai/gpt-oss-20b" },
+  { provider: 'nvidia', alias: 'nim-qwen3-coder-480b-a35b-instruct', upstream: "qwen/qwen3-coder-480b-a35b-instruct" },
+  { provider: 'nvidia', alias: 'nim-qwen3-next-80b-a3b-instruct', upstream: "qwen/qwen3-next-80b-a3b-instruct" },
+  { provider: 'nvidia', alias: 'nim-qwen3-next-80b-a3b-thinking', upstream: "qwen/qwen3-next-80b-a3b-thinking" },
+  { provider: 'nvidia', alias: 'nim-sarvam-m', upstream: "sarvamai/sarvam-m" },
+  { provider: 'nvidia', alias: 'nim-step-3.5-flash', upstream: "stepfun-ai/step-3.5-flash" },
+  { provider: 'nvidia', alias: 'nim-stockmark-2-100b-instruct', upstream: "stockmark/stockmark-2-100b-instruct" },
+  { provider: 'nvidia', alias: 'nim-solar-10.7b-instruct', upstream: "upstage/solar-10.7b-instruct" },
+]);
+
+const {
+  DEFAULT_MODEL_MAP,
+  DEFAULT_MODEL_ROUTES,
+  DEFAULT_MODEL_ALIASES,
+  DEFAULT_VISIBLE_MODELS,
+  DEFAULT_HIDDEN_ALIASES,
+} = buildDefaultRegistry();
+
+// Backward-compatible exports.
+export { DEFAULT_MODEL_MAP, DEFAULT_MODEL_ROUTES, DEFAULT_MODEL_ALIASES };
+export const DEFAULT_CLAUDE_MODEL_MAP = DEFAULT_MODEL_MAP;
+
+function buildDefaultRegistry() {
+  const map = {};
+  const routes = {};
+  const aliases = {};
+  const visible = [];
+
+  for (const model of NATIVE_ANTHROPIC_MODELS) {
+    map[model] = model;
+    routes[model] = 'anthropic';
+    aliases[model] = model;
+    visible.push(model);
+  }
+
+  for (const m of PROVIDER_MODELS) {
+    map[m.alias] = m.upstream;
+    routes[m.alias] = m.provider;
+    // First alias wins as the display name for a given upstream id (used to
+    // rewrite response.model back to the picker alias). The same upstream id can
+    // be served by two providers (e.g. openai/gpt-oss-120b on both HF and NIM);
+    // buildResponseModelMap still prefers the alias the client actually sent.
+    if (!aliases[m.upstream]) aliases[m.upstream] = m.alias;
+    visible.push(m.alias);
+  }
+
+  return {
+    DEFAULT_MODEL_MAP: Object.freeze(map),
+    DEFAULT_MODEL_ROUTES: Object.freeze(routes),
+    DEFAULT_MODEL_ALIASES: Object.freeze(aliases),
+    DEFAULT_VISIBLE_MODELS: Object.freeze(visible),
+    DEFAULT_HIDDEN_ALIASES: new Set(),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Claude family fallback
+//
+//  When the incoming request asks for a haiku/sonnet/opus model that has no
+//  exact match in modelMap AND the anthropic provider has no API key, we
+//  re-route to a configured alias from the open providers.  Override via
+//  CLAUDE_HAIKU_MODEL / CLAUDE_SONNET_MODEL / CLAUDE_OPUS_MODEL env vars.
+// ─────────────────────────────────────────────────────────────────────────────
+export const DEFAULT_CLAUDE_FAMILY_FALLBACK = Object.freeze({
+  haiku: 'ollama-gpt-oss-20b',
+  sonnet: 'ollama-qwen3-coder-480b',
+  opus: 'ollama-gpt-oss-120b',
+});
 
 export function resolveClaudeFamily(model) {
   if (typeof model !== 'string') return null;
@@ -601,133 +363,72 @@ export function resolveClaudeFamily(model) {
 }
 
 export function stripClaudeDate(model) {
-  if (typeof model !== 'string') return model;
-  return model.replace(CLAUDE_DATED_SUFFIX, '');
+  return typeof model === 'string' ? model.replace(CLAUDE_DATED_SUFFIX, '') : model;
 }
 
 /**
- * Resolve an incoming Claude-style request model to its upstream id.
- *
- * Resolution order:
- *   1. Exact MODEL_MAP lookup
- *   2. MODEL_MAP lookup with the date suffix stripped (claude-haiku-4-5-20251001 → claude-haiku-4-5)
- *   3. If the model is a Claude family (haiku/sonnet/opus) AND the Anthropic
- *      provider has no API key, fall back to the configured family alias and
- *      resolve again.
- *   4. Pass through unchanged.
- *
- * Returns { upstreamModel, requestAlias, family }. requestAlias is the
- * Claude-style alias the caller should see in the response (used to rewrite
- * response model fields).
+ * Map a request model id to a usable alias, applying:
+ *   1. Exact modelMap hit (unless it would route to anthropic-without-key)
+ *   2. Date-stripped modelMap hit (same caveat)
+ *   3. Claude family fallback (haiku/sonnet/opus → configured alias)
+ *   4. Pass-through (lets defaultProvider handle it)
  */
+export function resolveClaudeAlias(model, config) {
+  if (typeof model !== 'string' || !model) return model;
+
+  const anthropicHasKey = Boolean(config.providers?.anthropic?.upstreamApiKey);
+  const isUsable = (alias) =>
+    Boolean(alias && config.modelMap[alias])
+    && !(config.modelRoutes?.[alias] === 'anthropic' && !anthropicHasKey);
+
+  if (isUsable(model)) return model;
+
+  const stripped = stripClaudeDate(model);
+  if (stripped !== model && isUsable(stripped)) return stripped;
+
+  const family = resolveClaudeFamily(model);
+  if (family && !anthropicHasKey) {
+    const fallback = config.claudeFamilyFallback?.[family];
+    if (fallback && config.modelMap[fallback]) return fallback;
+  }
+
+  return model;
+}
+
+/** Back-compat shim — older test harnesses import this. */
 export function resolveModelForUpstream(model, config) {
   if (typeof model !== 'string' || !model) {
     return { upstreamModel: model, requestAlias: model, family: null };
   }
-
-  // Legacy claude-* alias (e.g. `claude-deepseek-v4-flash`,
-  // `claude-nim-llama-3.1-8b`) → rewrite to the new no-`claude-` id and
-  // continue normal resolution. Keeps existing user .env configs and the
-  // Claude Code CLI working without forcing them to update.
-  const legacyAliases = config.legacyClaudeAliases;
-  if (legacyAliases && legacyAliases[model]) {
-    const resolved = resolveModelForUpstream(legacyAliases[model], config);
-    return { ...resolved, requestAlias: model };
-  }
-
-  const anthropicHasKey = Boolean(config.providers?.anthropic?.upstreamApiKey);
-  const stripped = stripClaudeDate(model);
-
-  // Helper: would looking up `alias` in modelRoutes send us to Anthropic? If so,
-  // and Anthropic has no key, treat this as "no usable mapping" and fall through
-  // to the family fallback. This is what keeps Ollama-only setups working when
-  // Claude Desktop emits internal calls like claude-haiku-4-5-20251001.
-  const routesToAnthropicWithoutKey = (alias) =>
-    config.modelRoutes?.[alias] === 'anthropic' && !anthropicHasKey;
-
-  // 1. Exact map hit (unless that hit routes to Anthropic with no key).
-  if (config.modelMap[model] && !routesToAnthropicWithoutKey(model)) {
-    return {
-      upstreamModel: config.modelMap[model],
-      requestAlias: model,
-      family: resolveClaudeFamily(model),
-    };
-  }
-
-  // 2. Date-stripped map hit (same caveat).
-  if (
-    stripped !== model
-    && config.modelMap[stripped]
-    && !routesToAnthropicWithoutKey(stripped)
-  ) {
-    return {
-      upstreamModel: config.modelMap[stripped],
-      requestAlias: stripped,
-      family: resolveClaudeFamily(stripped),
-    };
-  }
-
-  // 3. Family fallback when Anthropic has no key.
-  const family = resolveClaudeFamily(model) || resolveClaudeFamily(stripped);
-  if (family && !anthropicHasKey) {
-    const fallbackAlias = config.claudeFamilyFallback?.[family];
-    if (fallbackAlias && config.modelMap[fallbackAlias]) {
-      return {
-        upstreamModel: config.modelMap[fallbackAlias],
-        requestAlias: fallbackAlias,
-        family,
-      };
-    }
-  }
-
-  // 4. Last resort: if exact or stripped hit exists (even when it would route
-  //    to Anthropic-without-key), use it. The forwarded request will fail at
-  //    the upstream stage, but at least we don't return the raw dated name
-  //    that no provider knows about.
-  if (config.modelMap[model]) {
-    return {
-      upstreamModel: config.modelMap[model],
-      requestAlias: model,
-      family: resolveClaudeFamily(model),
-    };
-  }
-  if (stripped !== model && config.modelMap[stripped]) {
-    return {
-      upstreamModel: config.modelMap[stripped],
-      requestAlias: stripped,
-      family: resolveClaudeFamily(stripped),
-    };
-  }
-
-  // 5. Pass through.
+  const requestAlias = resolveClaudeAlias(model, config);
+  const upstreamModel = config.modelMap?.[requestAlias] || requestAlias;
   return {
-    upstreamModel: model,
-    requestAlias: model,
-    family,
+    upstreamModel,
+    requestAlias,
+    family: resolveClaudeFamily(model) || resolveClaudeFamily(requestAlias),
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Config loading
+//  Config loading
 // ─────────────────────────────────────────────────────────────────────────────
-
 export function loadConfig(env = process.env) {
   env = mergeAdvancedEnv(env);
 
   const port = parseInteger(env.PORT || env.CLAUDE_DEEPSEEK_PROXY_PORT, 8787);
+
   const modelMap = {
     ...DEFAULT_MODEL_MAP,
-    ...parseStringMap(env.MODEL_MAP, 'MODEL_MAP'),
-  };
-  const modelAliases = {
-    ...DEFAULT_MODEL_ALIASES,
-    ...parseStringMap(env.MODEL_ALIASES, 'MODEL_ALIASES'),
+    ...parseStringMap(env.MODEL_MAP || env.CLAUDE_MODEL_MAP, 'MODEL_MAP'),
   };
   const modelRoutes = normalizeProviderRoutes({
     ...DEFAULT_MODEL_ROUTES,
     ...parseStringMap(env.MODEL_ROUTES, 'MODEL_ROUTES'),
   });
-
+  const modelAliases = {
+    ...DEFAULT_MODEL_ALIASES,
+    ...parseStringMap(env.MODEL_ALIASES, 'MODEL_ALIASES'),
+  };
   const claudeFamilyFallback = {
     ...DEFAULT_CLAUDE_FAMILY_FALLBACK,
     ...(env.CLAUDE_HAIKU_MODEL ? { haiku: env.CLAUDE_HAIKU_MODEL } : {}),
@@ -738,45 +439,28 @@ export function loadConfig(env = process.env) {
   return {
     port,
     baseUrl: env.BASE_URL || env.PROXY_BASE_URL || 'http://127.0.0.1:8787',
-    defaultProvider: normalizeProviderName(env.DEFAULT_PROVIDER || 'deepseek'),
+    defaultProvider: normalizeProviderName(env.DEFAULT_PROVIDER || 'ollama'),
     providers: {
       deepseek: {
-        upstreamBaseUrl: new URL(
-          env.DEEPSEEK_BASE_URL
-            || env.UPSTREAM_BASE_URL
-            || 'https://api.deepseek.com/anthropic',
-        ),
+        upstreamBaseUrl: new URL(env.DEEPSEEK_BASE_URL || env.UPSTREAM_BASE_URL || 'https://api.deepseek.com/anthropic'),
         upstreamApiKey: env.DEEPSEEK_API_KEY || env.UPSTREAM_API_KEY || '',
         format: 'anthropic',
         authScheme: 'bearer',
       },
       moonshot: {
-        upstreamBaseUrl: new URL(
-          env.MOONSHOT_BASE_URL
-            || env.KIMI_BASE_URL
-            || 'https://api.moonshot.cn/anthropic',
-        ),
+        upstreamBaseUrl: new URL(env.MOONSHOT_BASE_URL || env.KIMI_BASE_URL || 'https://api.moonshot.cn/anthropic'),
         upstreamApiKey: env.MOONSHOT_API_KEY || env.KIMI_API_KEY || '',
         format: 'anthropic',
         authScheme: 'bearer',
       },
       glm: {
-        upstreamBaseUrl: new URL(
-          env.GLM_BASE_URL
-            || env.ZAI_BASE_URL
-            || env.ZHIPU_BASE_URL
-            || 'https://api.z.ai/api/anthropic',
-        ),
+        upstreamBaseUrl: new URL(env.GLM_BASE_URL || env.ZAI_BASE_URL || env.ZHIPU_BASE_URL || 'https://api.z.ai/api/anthropic'),
         upstreamApiKey: env.GLM_API_KEY || env.ZAI_API_KEY || env.ZHIPU_API_KEY || '',
         format: 'anthropic',
         authScheme: 'bearer',
       },
       xiaomi: {
-        upstreamBaseUrl: new URL(
-          env.XIAOMI_BASE_URL
-            || env.MIMO_BASE_URL
-            || 'https://api.xiaomimimo.com/anthropic',
-        ),
+        upstreamBaseUrl: new URL(env.XIAOMI_BASE_URL || env.MIMO_BASE_URL || 'https://api.xiaomimimo.com/anthropic'),
         upstreamApiKey: env.XIAOMI_API_KEY || env.MIMO_API_KEY || '',
         format: 'anthropic',
         authScheme: 'bearer',
@@ -789,22 +473,14 @@ export function loadConfig(env = process.env) {
         maxTokensField: 'max_completion_tokens',
       },
       gemini: {
-        upstreamBaseUrl: new URL(
-          env.GEMINI_BASE_URL
-            || env.GOOGLE_BASE_URL
-            || 'https://generativelanguage.googleapis.com/v1beta/openai',
-        ),
+        upstreamBaseUrl: new URL(env.GEMINI_BASE_URL || env.GOOGLE_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'),
         upstreamApiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '',
         format: 'openai-chat',
         authScheme: 'bearer',
         maxTokensField: 'max_tokens',
       },
       qwen: {
-        upstreamBaseUrl: new URL(
-          env.QWEN_BASE_URL
-            || env.DASHSCOPE_BASE_URL
-            || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-        ),
+        upstreamBaseUrl: new URL(env.QWEN_BASE_URL || env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1'),
         upstreamApiKey: env.QWEN_API_KEY || env.DASHSCOPE_API_KEY || '',
         format: 'openai-chat',
         authScheme: 'bearer',
@@ -818,31 +494,15 @@ export function loadConfig(env = process.env) {
         maxTokensField: 'max_tokens',
       },
       huggingface: {
-        upstreamBaseUrl: new URL(
-          env.HUGGINGFACE_BASE_URL
-            || env.HF_BASE_URL
-            || 'https://router.huggingface.co/v1',
-        ),
-        upstreamApiKey:
-          env.HUGGINGFACE_API_KEY
-          || env.HF_API_KEY
-          || env.HF_TOKEN
-          || '',
+        upstreamBaseUrl: new URL(env.HUGGINGFACE_BASE_URL || env.HF_BASE_URL || 'https://router.huggingface.co/v1'),
+        upstreamApiKey: env.HUGGINGFACE_API_KEY || env.HF_API_KEY || env.HF_TOKEN || '',
         format: 'openai-chat',
         authScheme: 'bearer',
         maxTokensField: 'max_tokens',
       },
       nvidia: {
-        upstreamBaseUrl: new URL(
-          env.NVIDIA_BASE_URL
-            || env.NIM_BASE_URL
-            || 'https://integrate.api.nvidia.com/v1',
-        ),
-        upstreamApiKey:
-          env.NVIDIA_API_KEY
-          || env.NVAPI_KEY
-          || env.NIM_API_KEY
-          || '',
+        upstreamBaseUrl: new URL(env.NVIDIA_BASE_URL || env.NIM_BASE_URL || 'https://integrate.api.nvidia.com/v1'),
+        upstreamApiKey: env.NVIDIA_API_KEY || env.NVAPI_KEY || env.NIM_API_KEY || '',
         format: 'openai-chat',
         authScheme: 'bearer',
         maxTokensField: 'max_tokens',
@@ -856,27 +516,24 @@ export function loadConfig(env = process.env) {
       },
     },
     modelMap,
-    modelAliases,
     modelRoutes,
+    modelAliases,
     claudeFamilyFallback,
-    rewriteResponses: parseBoolean(env.REWRITE_RESPONSES, false),
-    requestBodyLimitBytes: parseInteger(
-      env.REQUEST_BODY_LIMIT_BYTES,
-      DEFAULT_REQUEST_BODY_LIMIT_BYTES,
-    ),
+    visibleModels: DEFAULT_VISIBLE_MODELS,
+    hiddenAliases: DEFAULT_HIDDEN_ALIASES,
+    rewriteResponses: parseBoolean(env.REWRITE_RESPONSES, true),
+    requestBodyLimitBytes: parseInteger(env.REQUEST_BODY_LIMIT_BYTES, DEFAULT_REQUEST_BODY_LIMIT_BYTES),
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Server
+//  Server
 // ─────────────────────────────────────────────────────────────────────────────
-
 export function createProxyServer(config = loadConfig()) {
   const normalizedConfig = normalizeConfig(config);
 
   return http.createServer(async (clientReq, clientRes) => {
     const requestStart = Date.now();
-
     debugBlock('INCOMING REQUEST', [
       `Method: ${clientReq.method}`,
       `URL: ${clientReq.url}`,
@@ -885,7 +542,7 @@ export function createProxyServer(config = loadConfig()) {
     ]);
 
     try {
-      // 1. Local health check.
+      // /healthz — local probe.
       if (clientReq.method === 'GET' && clientReq.url === '/healthz') {
         sendJson(clientRes, 200, {
           ok: true,
@@ -896,64 +553,48 @@ export function createProxyServer(config = loadConfig()) {
           modelAliases: normalizedConfig.modelAliases,
           modelRoutes: normalizedConfig.modelRoutes,
           claudeFamilyFallback: normalizedConfig.claudeFamilyFallback,
+          visibleModels: normalizedConfig.visibleModels,
           rewriteResponses: normalizedConfig.rewriteResponses,
         });
         return;
       }
 
-      // 2. Local /v1/models discovery (Anthropic-compatible shape, matches 6315023).
+      // /v1/models — picker catalog.
       if (clientReq.method === 'GET' && isModelsRequest(clientReq.url)) {
         handleModelsRequest(clientReq, clientRes, normalizedConfig);
         return;
       }
 
-      // 3. /v1/messages/count_tokens — answered locally with a character heuristic.
-      //    OpenAI-compatible upstreams (Ollama, OpenAI, etc.) don't expose this
-      //    endpoint, and the Anthropic upstream's response would be wrong because
-      //    the upstream model is different from the alias the client asked about.
+      // /v1/messages/count_tokens — answered locally.
       if (clientReq.method === 'POST' && isCountTokensRequest(clientReq.url)) {
         await handleCountTokensRequest(clientReq, clientRes, normalizedConfig);
         return;
       }
 
-      const rawBody = await readRequestBody(
-        clientReq,
-        normalizedConfig.requestBodyLimitBytes,
-      );
+      // Everything else — forward to upstream after model resolution.
+      const rawBody = await readRequestBody(clientReq, normalizedConfig.requestBodyLimitBytes);
       const contentType = String(clientReq.headers['content-type'] || '');
-      const preparedRequest = prepareRequest(rawBody, contentType, normalizedConfig);
-      const target = buildTargetUrl(preparedRequest.provider, clientReq.url || '/');
-      const headers = buildUpstreamHeaders(
-        clientReq.headers,
-        target,
-        preparedRequest.body,
-        preparedRequest.provider,
-      );
-
+      const prepared = prepareRequest(rawBody, contentType, normalizedConfig);
+      const target = buildTargetUrl(prepared.provider, clientReq.url || '/');
+      const headers = buildUpstreamHeaders(clientReq.headers, target, prepared.body, prepared.provider);
       forwardRequest({
         target,
         method: clientReq.method || 'GET',
         headers,
-        body: preparedRequest.body,
+        body: prepared.body,
         clientRes,
         rewriteResponses: normalizedConfig.rewriteResponses,
-        responseModelMap: preparedRequest.responseModelMap,
-        provider: preparedRequest.provider,
+        responseModelMap: prepared.responseModelMap,
+        provider: prepared.provider,
         requestStart,
       });
     } catch (error) {
       const statusCode = error.statusCode || 500;
-      console.error(`[claude-universal-custom-proxy] ${statusCode} ${error.message}`);
-      sendJson(clientRes, statusCode, {
-        error: String(error.message || error),
-      });
+      console.error(`[${SERVER_NAME}] ${statusCode} ${error.message}`);
+      sendJson(clientRes, statusCode, { error: String(error.message || error) });
     }
   });
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Local endpoints
-// ─────────────────────────────────────────────────────────────────────────────
 
 function isModelsRequest(rawUrl = '/') {
   const pathname = new URL(rawUrl, 'http://127.0.0.1').pathname;
@@ -966,110 +607,73 @@ function isCountTokensRequest(rawUrl = '/') {
     || pathname.endsWith('/v1/messages/count_tokens');
 }
 
-// Anthropic Messages models endpoint — character-identical to v0.2.0
-// (commit 6315023), which was the last known-good shape. Query parameters
-// are intentionally ignored: the endpoint always returns the entire catalog
-// with has_more=false. Anything more sophisticated has broken at least one
-// Claude surface in past versions.
+const MODELS_CREATED_AT = '2026-01-01T00:00:00Z';
+
 function handleModelsRequest(req, res, config) {
   const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
-  const models = listConfiguredModels(config);
+  const visible = listVisibleModels(config);
 
   if (pathname === '/v1/models') {
     sendJson(res, 200, {
-      data: models,
-      first_id: models[0]?.id || null,
+      data: visible,
+      first_id: visible[0]?.id || null,
       has_more: false,
-      last_id: models.at(-1)?.id || null,
+      last_id: visible.at(-1)?.id || null,
     });
     return;
   }
 
+  // /v1/models/{id} — return a single descriptor. Allow lookup for ANY known
+  // alias, including hidden ones, so legacy configs continue to work.
   const modelId = decodeURIComponent(pathname.slice('/v1/models/'.length));
-  const model = models.find((item) => item.id === modelId);
-  if (!model) {
-    sendJson(res, 404, {
-      error: `Unknown model: ${modelId}`,
-    });
+  if (!config.modelMap[modelId]) {
+    sendJson(res, 404, { error: `Unknown model: ${modelId}` });
     return;
   }
-
-  sendJson(res, 200, model);
+  sendJson(res, 200, {
+    type: 'model',
+    id: modelId,
+    display_name: modelId,
+    created_at: MODELS_CREATED_AT,
+  });
 }
 
-const MODELS_CREATED_AT = '2026-01-01T00:00:00Z';
+function listVisibleModels(config) {
+  const visible = Array.isArray(config.visibleModels) && config.visibleModels.length
+    ? config.visibleModels
+    : Object.keys(config.modelMap);
+  const hidden = config.hiddenAliases instanceof Set ? config.hiddenAliases : new Set();
 
-function listConfiguredModels(config) {
-  return Object.keys(config.modelMap)
-    .sort()
+  return visible
+    .filter((id) => !hidden.has(id))
     .map((id) => ({
       type: 'model',
       id,
-      display_name: toModelDisplayName(id),
+      display_name: id,
       created_at: MODELS_CREATED_AT,
     }));
-}
-
-// Claude Desktop's Cowork 3P picker hides any /v1/models entry whose id starts
-// with `claude-` AND contains a foundation-model brand keyword, and also hides
-// the `anthropic/*` namespace as "looks-like-Anthropic-but-isn't" — that's why
-// both the v0.5.1 (claude-* with sanitized display_name) and v0.5.2
-// (anthropic/<provider>/<model> gateway-id) approaches still showed only
-// 11/116 entries.
-//
-// v0.6.0 follows the wanghao9610/claude-model-proxy reference project: every
-// non-Claude-family alias is advertised under its real upstream model name
-// (e.g. `deepseek-v4-flash`, `gpt-5.5`, `nim-llama-3.1-8b`). Those ids are not
-// in any Anthropic-owned namespace, so the picker shows them. Only the actual
-// Claude family models (`claude-haiku-*`, `claude-sonnet-*`, `claude-opus-*`)
-// keep the `claude-` prefix.
-//
-// LEGACY_CLAUDE_ALIASES (below) preserves backward compatibility: existing
-// user `.env` configs and Claude Code CLI integrations that still reference
-// `claude-deepseek-v4-flash`, `claude-nim-llama-3.1-8b`, etc. continue to
-// route to the same upstream by being rewritten to the new id at request time.
-
-function toModelDisplayName(id) {
-  // The new ids are already human-readable upstream names (`gpt-5.5`,
-  // `nim-llama-3.1-8b`, `claude-haiku-4-5`) so the display label is the id
-  // itself, matching the reference project. The picker still formats Claude
-  // family version segments (`4-5` → `4.5`) on its own.
-  return id;
 }
 
 async function handleCountTokensRequest(req, res, config) {
   const rawBody = await readRequestBody(req, config.requestBodyLimitBytes);
   let payload = {};
   if (rawBody.length > 0) {
-    try {
-      payload = JSON.parse(rawBody.toString('utf8'));
-    } catch {
-      payload = {};
-    }
+    try { payload = JSON.parse(rawBody.toString('utf8')); } catch { payload = {}; }
   }
-
   const inputTokens = estimateAnthropicTokenCount(payload);
   debugBlock('COUNT TOKENS (LOCAL)', [
     `Model: ${payload.model || '(none)'}`,
     `Estimated input_tokens: ${inputTokens}`,
   ]);
-
   sendJson(res, 200, { input_tokens: inputTokens });
 }
 
-/**
- * Heuristic Anthropic token count: total character length of all text content
- * divided by 4 (roughly the ratio for English; close enough for cost-of-prompt
- * estimates that drive client-side decisions like "should we summarize?").
- */
 function estimateAnthropicTokenCount(payload) {
   const parts = [];
-
   for (const block of toArray(payload.system)) {
     if (typeof block === 'string') parts.push(block);
     else if (block?.text) parts.push(block.text);
   }
-
   for (const message of toArray(payload.messages)) {
     const content = message?.content;
     if (typeof content === 'string') {
@@ -1082,102 +686,73 @@ function estimateAnthropicTokenCount(payload) {
       }
     }
   }
-
   for (const tool of toArray(payload.tools)) {
     if (tool?.name) parts.push(tool.name);
     if (tool?.description) parts.push(tool.description);
     if (tool?.input_schema) parts.push(JSON.stringify(tool.input_schema));
   }
-
   const totalChars = parts.reduce((sum, value) => sum + (value?.length || 0), 0);
   return Math.max(1, Math.ceil(totalChars / 4));
 }
 
 function toArray(value) {
-  if (Array.isArray(value)) return value;
-  if (value === undefined || value === null) return [];
-  return [value];
+  return Array.isArray(value) ? value : (value === undefined || value === null ? [] : [value]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Forwarded requests
+//  Request preparation — applies smart resolver + body rewriting.
 // ─────────────────────────────────────────────────────────────────────────────
-
 function prepareRequest(rawBody, contentType, config) {
   if (rawBody.length === 0 || !isJsonContentType(contentType)) {
-    return {
-      body: rawBody,
-      provider: resolveProvider('', '', config),
-      responseModelMap: config.modelAliases,
-    };
+    return { body: rawBody, provider: resolveProvider('', '', config), responseModelMap: config.modelAliases };
   }
 
-  const text = rawBody.toString('utf8');
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (error) {
-    const err = new Error(`Request body is not valid JSON: ${error.message}`);
-    err.statusCode = 400;
-    throw err;
-  }
+  const parsed = JSON.parse(rawBody.toString('utf8'));
+  const incomingModel = typeof parsed?.model === 'string' ? parsed.model : '';
 
-  // Pre-resolve the primary request model using the smart resolver so dated
-  // Claude names and family fallbacks are honored before the rest of the body
-  // is rewritten.
-  const primaryRequestModel = typeof parsed?.model === 'string' ? parsed.model : '';
-  const primaryResolution = resolveModelForUpstream(primaryRequestModel, config);
-  const requestAlias = primaryResolution.requestAlias || primaryRequestModel;
+  // Apply family fallback / date stripping BEFORE map rewriting so dated and
+  // generic Claude names get re-routed to a working upstream.
+  const resolvedAlias = resolveClaudeAlias(incomingModel, config);
+  if (resolvedAlias && resolvedAlias !== incomingModel) parsed.model = resolvedAlias;
 
-  // Rewrite all `model`/`id`/... values in the body via the modelMap, and then
-  // overwrite the primary model with the upstream id from the smart resolver so
-  // it picks up date-strip + family fallbacks even when the modelMap doesn't
-  // contain the dated alias.
   const rewritten = rewriteModelValues(parsed, config.modelMap);
-  if (primaryRequestModel && rewritten && typeof rewritten === 'object') {
-    rewritten.model = primaryResolution.upstreamModel;
-  }
-
   const requestModels = collectModelValues(parsed);
   const upstreamModels = collectModelValues(rewritten);
-  const upstreamModel = primaryResolution.upstreamModel
-    || upstreamModels[0]
-    || requestAlias;
-
+  const requestAlias = requestModels[0] || '';
+  const upstreamModel = upstreamModels[0] || requestAlias;
   const provider = resolveProvider(upstreamModel, requestAlias, config);
 
   debugBlock('MODEL ROUTING', [
-    `Incoming model: ${primaryRequestModel || '(none)'}`,
-    `Resolved request alias: ${requestAlias || '(none)'}`,
+    `Incoming model: ${incomingModel || '(none)'}`,
+    `Resolved alias: ${requestAlias || '(none)'}`,
     `Upstream model: ${upstreamModel || '(none)'}`,
-    `Family fallback: ${primaryResolution.family || 'n/a'}`,
     `Provider: ${provider?.name || ''} (${provider?.upstreamBaseUrl?.host || ''})`,
     `Format: ${provider?.format || ''}`,
   ]);
 
+  const responseModelMap = buildResponseModelMap(
+    upstreamModels,
+    config.modelAliases,
+    requestModels,
+    config.modelMap,
+  );
+  // If we family-fell-back, keep the original alias visible in responses too.
+  if (incomingModel && upstreamModel && incomingModel !== requestAlias) {
+    responseModelMap[upstreamModel] = incomingModel;
+  }
+
   return {
     body: formatRequestBody(rewritten, provider),
     provider,
-    responseModelMap: buildResponseModelMap(
-      [upstreamModel, ...upstreamModels],
-      config.modelAliases,
-      [requestAlias, ...requestModels],
-      config.modelMap,
-    ),
+    responseModelMap,
   };
 }
 
-function forwardRequest({
-  target,
-  method,
-  headers,
-  body,
-  clientRes,
-  rewriteResponses,
-  responseModelMap,
-  provider,
-  requestStart,
-}) {
+// ─────────────────────────────────────────────────────────────────────────────
+//  Upstream forwarding & response handling
+// ─────────────────────────────────────────────────────────────────────────────
+function forwardRequest(opts) {
+  const { target, method, headers, body, clientRes, rewriteResponses, responseModelMap, provider, requestStart } = opts;
   const transport = target.protocol === 'https:' ? https : http;
 
   debugBlock('FORWARDING REQUEST', [
@@ -1202,23 +777,14 @@ function forwardRequest({
         `Status: ${upstreamRes.statusCode} ${upstreamRes.statusMessage || ''}`,
         `Content-Type: ${upstreamRes.headers['content-type'] || ''}`,
       ]);
-      handleUpstreamResponse(upstreamRes, clientRes, {
-        rewriteResponses,
-        responseModelMap,
-        provider,
-      });
+      handleUpstreamResponse(upstreamRes, clientRes, { rewriteResponses, responseModelMap, provider });
     },
   );
 
   upstreamReq.on('error', (error) => {
-    console.error(`[claude-universal-custom-proxy] upstream error: ${error.message}`);
-    if (!clientRes.headersSent) {
-      sendJson(clientRes, 502, {
-        error: `Upstream request failed: ${error.message}`,
-      });
-      return;
-    }
-    clientRes.destroy(error);
+    console.error(`[${SERVER_NAME}] upstream error: ${error.message}`);
+    if (!clientRes.headersSent) sendJson(clientRes, 502, { error: `Upstream request failed: ${error.message}` });
+    else clientRes.destroy(error);
   });
 
   upstreamReq.end(body);
@@ -1228,15 +794,8 @@ function handleUpstreamResponse(upstreamRes, clientRes, config) {
   const headers = sanitizeResponseHeaders(upstreamRes.headers);
   const contentType = String(headers['content-type'] || '');
 
-  if (
-    config.provider?.format === 'openai-chat'
-    && isSuccessfulStatus(upstreamRes.statusCode)
-  ) {
-    handleOpenAIChatResponse(upstreamRes, clientRes, {
-      ...config,
-      headers,
-      contentType,
-    });
+  if (config.provider?.format === 'openai-chat' && isSuccessfulStatus(upstreamRes.statusCode)) {
+    handleOpenAIChatResponse(upstreamRes, clientRes, { ...config, headers, contentType });
     return;
   }
 
@@ -1254,53 +813,41 @@ function handleUpstreamResponse(upstreamRes, clientRes, config) {
         clientRes.end(rewritten);
       })
       .catch((error) => {
-        if (!clientRes.headersSent) {
-          sendJson(clientRes, 502, {
-            error: `Upstream response handling failed: ${error.message}`,
-          });
-          return;
-        }
-        clientRes.destroy(error);
+        if (!clientRes.headersSent) sendJson(clientRes, 502, { error: `Upstream response handling failed: ${error.message}` });
+        else clientRes.destroy(error);
       });
     return;
   }
 
   clientRes.writeHead(upstreamRes.statusCode || 502, upstreamRes.statusMessage, headers);
-
   if (config.rewriteResponses && isTextualContentType(contentType)) {
     upstreamRes.pipe(createReplaceStream(config.responseModelMap)).pipe(clientRes);
     return;
   }
-
   upstreamRes.pipe(clientRes);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Anthropic ↔ OpenAI-chat body translation
+// ─────────────────────────────────────────────────────────────────────────────
 function formatRequestBody(rewrittenBody, provider) {
-  if (provider.format === 'openai-chat') {
-    return Buffer.from(JSON.stringify(toOpenAIChatRequest(rewrittenBody, provider)));
-  }
-  return Buffer.from(JSON.stringify(rewrittenBody));
+  return provider.format === 'openai-chat'
+    ? Buffer.from(JSON.stringify(toOpenAIChatRequest(rewrittenBody, provider)))
+    : Buffer.from(JSON.stringify(rewrittenBody));
 }
 
 function toOpenAIChatRequest(body, provider) {
-  const request = {
-    model: body.model,
-    messages: [],
-  };
+  const request = { model: body.model, messages: [] };
 
   const systemContent = toOpenAIContent(body.system, 'system');
   if (!isEmptyOpenAIContent(systemContent)) {
-    request.messages.push({
-      role: 'system',
-      content: systemContent,
-    });
+    request.messages.push({ role: 'system', content: systemContent });
   }
 
   for (const message of Array.isArray(body.messages) ? body.messages : []) {
-    const role = toOpenAIMessageRole(message.role);
     request.messages.push({
-      role,
-      content: toOpenAIContent(message.content, role),
+      role: toOpenAIMessageRole(message.role),
+      content: toOpenAIContent(message.content, message.role),
     });
   }
 
@@ -1313,15 +860,12 @@ function toOpenAIChatRequest(body, provider) {
   if (body.max_tokens !== undefined) {
     request[provider.maxTokensField || 'max_tokens'] = body.max_tokens;
   }
-
   if (Array.isArray(body.stop_sequences) && body.stop_sequences.length > 0) {
     request.stop = body.stop_sequences;
   }
-
   if (typeof body.metadata?.user_id === 'string' && body.metadata.user_id) {
     request.user = body.metadata.user_id;
   }
-
   return request;
 }
 
@@ -1329,65 +873,44 @@ function toOpenAIMessageRole(role) {
   return role === 'assistant' ? 'assistant' : 'user';
 }
 
+function isEmptyOpenAIContent(content) {
+  return Array.isArray(content) ? content.length === 0 : content === '';
+}
+
+function copyDefined(target, source, key) {
+  if (source[key] !== undefined) target[key] = source[key];
+}
+
 function toOpenAIContent(content, role) {
-  if (content === undefined || content === null) {
-    return '';
-  }
-
-  if (typeof content === 'string') {
-    return content;
-  }
-
-  if (!Array.isArray(content)) {
-    return stringifyUnknownContent(content);
-  }
+  if (content === undefined || content === null) return '';
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return stringifyUnknownContent(content);
 
   const parts = content.flatMap((part) => toOpenAIContentPart(part));
   const hasNonTextPart = parts.some((part) => typeof part !== 'string' && part.type !== 'text');
   if (role !== 'user' || !hasNonTextPart) {
     return parts.map((part) => (typeof part === 'string' ? part : part.text || '')).join('');
   }
-
   return parts.map((part) => (typeof part === 'string' ? { type: 'text', text: part } : part));
 }
 
 function toOpenAIContentPart(part) {
-  if (typeof part === 'string') {
-    return [part];
-  }
-
-  if (!part || typeof part !== 'object') {
-    return [String(part ?? '')];
-  }
-
-  if (part.type === 'text') {
-    return [{ type: 'text', text: part.text || '' }];
-  }
-
+  if (typeof part === 'string') return [part];
+  if (!part || typeof part !== 'object') return [String(part ?? '')];
+  if (part.type === 'text') return [{ type: 'text', text: part.text || '' }];
   if (part.type === 'image' && part.source?.type === 'base64') {
     return [{
       type: 'image_url',
-      image_url: {
-        url: `data:${part.source.media_type || 'image/png'};base64,${part.source.data || ''}`,
-      },
+      image_url: { url: `data:${part.source.media_type || 'image/png'};base64,${part.source.data || ''}` },
     }];
   }
-
-  if (part.type === 'tool_result') {
-    return [{ type: 'text', text: toTextContent(part.content) }];
-  }
-
-  if (part.text) {
-    return [{ type: 'text', text: String(part.text) }];
-  }
-
+  if (part.type === 'tool_result') return [{ type: 'text', text: toTextContent(part.content) }];
+  if (part.text) return [{ type: 'text', text: String(part.text) }];
   return [{ type: 'text', text: stringifyUnknownContent(part) }];
 }
 
 function toTextContent(content) {
-  if (typeof content === 'string') {
-    return content;
-  }
+  if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     return content.map((item) => {
       if (typeof item === 'string') return item;
@@ -1404,19 +927,9 @@ function stringifyUnknownContent(value) {
   try { return JSON.stringify(value); } catch { return String(value); }
 }
 
-function isEmptyOpenAIContent(content) {
-  if (Array.isArray(content)) return content.length === 0;
-  return content === '';
-}
-
-function copyDefined(target, source, key) {
-  if (source[key] !== undefined) target[key] = source[key];
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// OpenAI-Chat response → Anthropic Messages response
+//  OpenAI-chat → Anthropic Messages response translation
 // ─────────────────────────────────────────────────────────────────────────────
-
 function handleOpenAIChatResponse(upstreamRes, clientRes, config) {
   const responseModelMap = config.rewriteResponses ? config.responseModelMap : {};
 
@@ -1430,13 +943,8 @@ function handleOpenAIChatResponse(upstreamRes, clientRes, config) {
         clientRes.end(converted);
       })
       .catch((error) => {
-        if (!clientRes.headersSent) {
-          sendJson(clientRes, 502, {
-            error: `OpenAI-compatible response handling failed: ${error.message}`,
-          });
-          return;
-        }
-        clientRes.destroy(error);
+        if (!clientRes.headersSent) sendJson(clientRes, 502, { error: `OpenAI-compatible response handling failed: ${error.message}` });
+        else clientRes.destroy(error);
       });
     return;
   }
@@ -1449,15 +957,10 @@ function handleOpenAIChatResponse(upstreamRes, clientRes, config) {
 }
 
 function convertOpenAIChatJsonResponse(body, responseModelMap) {
-  if (body.length === 0) {
-    return body;
-  }
-
+  if (body.length === 0) return body;
   const parsed = JSON.parse(body.toString('utf8'));
   const choice = parsed.choices?.[0];
-  if (!choice) {
-    return Buffer.from(JSON.stringify(rewriteModelValues(parsed, responseModelMap)));
-  }
+  if (!choice) return Buffer.from(JSON.stringify(rewriteModelValues(parsed, responseModelMap)));
 
   const text = openAIMessageText(choice.message);
   const message = {
@@ -1470,7 +973,6 @@ function convertOpenAIChatJsonResponse(body, responseModelMap) {
     stop_sequence: null,
     usage: toAnthropicUsage(parsed.usage),
   };
-
   return Buffer.from(JSON.stringify(message));
 }
 
@@ -1501,7 +1003,6 @@ function createOpenAIChatSseToAnthropicStream(responseModelMap) {
     stopReason: 'end_turn',
     usage: { input_tokens: 0, output_tokens: 0 },
   };
-
   return new Transform({
     transform(chunk, _encoding, callback) {
       state.buffer += decoder.write(chunk).replace(/\r\n/g, '\n');
@@ -1532,50 +1033,38 @@ function processOpenAISseBuffer(stream, state, responseModelMap, flush = false) 
 }
 
 function handleOpenAISseEvent(stream, eventText, state, responseModelMap) {
-  const data = eventText
-    .split('\n')
+  const data = eventText.split('\n')
     .filter((line) => line.startsWith('data:'))
     .map((line) => line.slice(5).trimStart())
     .join('\n')
     .trim();
-
   if (!data) return;
-
-  if (data === '[DONE]') {
-    stopAnthropicStream(stream, state);
-    return;
-  }
+  if (data === '[DONE]') { stopAnthropicStream(stream, state); return; }
 
   let parsed;
   try { parsed = JSON.parse(data); } catch { return; }
 
   startAnthropicStream(stream, state, parsed, responseModelMap);
-
   const choice = parsed.choices?.[0];
   if (!choice) {
     if (parsed.usage) state.usage = toAnthropicUsage(parsed.usage);
     return;
   }
-
   if (choice.finish_reason) state.stopReason = toAnthropicStopReason(choice.finish_reason);
-
   const text = openAIStreamDeltaText(choice.delta);
   if (text) {
     if (!state.contentBlockStarted) {
       pushSse(stream, 'content_block_start', {
-        type: 'content_block_start',
-        index: 0,
+        type: 'content_block_start', index: 0,
         content_block: { type: 'text', text: '' },
       });
       state.contentBlockStarted = true;
     }
     pushSse(stream, 'content_block_delta', {
-      type: 'content_block_delta',
-      index: 0,
+      type: 'content_block_delta', index: 0,
       delta: { type: 'text_delta', text },
     });
   }
-
   if (parsed.usage) state.usage = toAnthropicUsage(parsed.usage);
 }
 
@@ -1586,14 +1075,8 @@ function startAnthropicStream(stream, state, chunk, responseModelMap) {
   pushSse(stream, 'message_start', {
     type: 'message_start',
     message: {
-      id: state.id,
-      type: 'message',
-      role: 'assistant',
-      model: state.model,
-      content: [],
-      stop_reason: null,
-      stop_sequence: null,
-      usage: state.usage,
+      id: state.id, type: 'message', role: 'assistant', model: state.model,
+      content: [], stop_reason: null, stop_sequence: null, usage: state.usage,
     },
   });
   state.messageStarted = true;
@@ -1651,29 +1134,26 @@ function rewriteModelName(model, responseModelMap) {
 
 function rewriteJsonResponseBody(body, responseModelMap) {
   if (body.length === 0) return body;
-  const text = body.toString('utf8');
   let parsed;
-  try { parsed = JSON.parse(text); } catch { return body; }
-  const rewritten = rewriteModelValues(parsed, responseModelMap);
-  return Buffer.from(JSON.stringify(rewritten));
+  try { parsed = JSON.parse(body.toString('utf8')); }
+  catch { return body; }
+  return Buffer.from(JSON.stringify(rewriteModelValues(parsed, responseModelMap)));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Model value walking — rewrite / collect every "model"-shaped field in a
+//  nested JSON tree.
+// ─────────────────────────────────────────────────────────────────────────────
 export function rewriteModelValues(value, modelMap, keyName = '') {
   if (typeof value === 'string') {
-    if (MODEL_VALUE_KEYS.has(keyName) || MODEL_ARRAY_KEYS.has(keyName)) {
-      return modelMap[value] || value;
-    }
-    return value;
+    return (MODEL_VALUE_KEYS.has(keyName) || MODEL_ARRAY_KEYS.has(keyName))
+      ? (modelMap[value] || value)
+      : value;
   }
-  if (Array.isArray(value)) {
-    return value.map((item) => rewriteModelValues(item, modelMap, keyName));
-  }
+  if (Array.isArray(value)) return value.map((item) => rewriteModelValues(item, modelMap, keyName));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [
-        key,
-        rewriteModelValues(item, modelMap, key),
-      ]),
+      Object.entries(value).map(([key, item]) => [key, rewriteModelValues(item, modelMap, key)]),
     );
   }
   return value;
@@ -1688,14 +1168,12 @@ export function createReplaceStream(modelMap) {
       buffer += decoder.write(chunk);
       const emitEnd = buffer.lastIndexOf('\n');
       if (emitEnd === -1) { callback(); return; }
-      const emitText = replaceAllModels(buffer.slice(0, emitEnd + 1), entries);
+      this.push(replaceAllModels(buffer.slice(0, emitEnd + 1), entries));
       buffer = buffer.slice(emitEnd + 1);
-      this.push(emitText);
       callback();
     },
     flush(callback) {
-      const text = buffer + decoder.end();
-      this.push(replaceAllModels(text, entries));
+      this.push(replaceAllModels(buffer + decoder.end(), entries));
       callback();
     },
   });
@@ -1703,19 +1181,15 @@ export function createReplaceStream(modelMap) {
 
 function replaceAllModels(text, entries) {
   let output = text;
-  for (const [from, to] of entries) {
-    output = output.replaceAll(from, to);
-  }
+  for (const [from, to] of entries) output = output.replaceAll(from, to);
   return output;
 }
 
 function collectModelValues(value, keyName = '') {
   if (typeof value === 'string') {
-    return MODEL_VALUE_KEYS.has(keyName) || MODEL_ARRAY_KEYS.has(keyName) ? [value] : [];
+    return (MODEL_VALUE_KEYS.has(keyName) || MODEL_ARRAY_KEYS.has(keyName)) ? [value] : [];
   }
-  if (Array.isArray(value)) {
-    return value.flatMap((item) => collectModelValues(item, keyName));
-  }
+  if (Array.isArray(value)) return value.flatMap((item) => collectModelValues(item, keyName));
   if (value && typeof value === 'object') {
     return Object.entries(value).flatMap(([key, item]) => collectModelValues(item, key));
   }
@@ -1724,36 +1198,25 @@ function collectModelValues(value, keyName = '') {
 
 function buildResponseModelMap(upstreamModels, modelAliases, requestModels = [], modelMap = {}) {
   const selected = {};
-
-  // Pair each request alias with the upstream id it produced, so responses are
-  // rewritten back to the exact alias the client asked for.
   for (const requestModel of requestModels) {
-    if (!requestModel) continue;
     const upstreamModel = modelMap[requestModel] || requestModel;
-    if (upstreamModels.includes(upstreamModel)) {
-      selected[upstreamModel] = requestModel;
-    }
+    if (upstreamModels.includes(upstreamModel)) selected[upstreamModel] = requestModel;
   }
-
-  // Fill in any remaining upstream ids from the global alias table.
   for (const model of upstreamModels) {
-    if (!model) continue;
-    if (!selected[model] && modelAliases[model]) {
-      selected[model] = modelAliases[model];
-    }
+    if (!selected[model] && modelAliases[model]) selected[model] = modelAliases[model];
   }
-
-  return Object.keys(selected).length > 0 ? selected : modelAliases;
+  return Object.keys(selected).length > 0 ? selected : { ...modelAliases };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Header & URL building
+// ─────────────────────────────────────────────────────────────────────────────
 function buildUpstreamHeaders(clientHeaders, target, body, provider) {
   const headers = {};
 
   for (const [key, value] of Object.entries(clientHeaders)) {
     const lowerKey = key.toLowerCase();
-    if (HOP_BY_HOP_HEADERS.has(lowerKey) || lowerKey === 'host' || lowerKey === 'content-length') {
-      continue;
-    }
+    if (HOP_BY_HOP_HEADERS.has(lowerKey) || lowerKey === 'host' || lowerKey === 'content-length') continue;
     headers[lowerKey] = value;
   }
 
@@ -1768,6 +1231,8 @@ function buildUpstreamHeaders(clientHeaders, target, body, provider) {
     headers['content-type'] = 'application/json';
   }
 
+  // Substitute the upstream API key — this is what stops Claude Desktop's
+  // gateway-provided "Bearer dummy-…" from leaking through.
   if (provider.upstreamApiKey) {
     delete headers.authorization;
     delete headers['x-api-key'];
@@ -1789,53 +1254,28 @@ function sanitizeResponseHeaders(upstreamHeaders) {
   const headers = {};
   for (const [key, value] of Object.entries(upstreamHeaders)) {
     const lowerKey = key.toLowerCase();
-    if (HOP_BY_HOP_HEADERS.has(lowerKey)) continue;
-    headers[lowerKey] = value;
+    if (!HOP_BY_HOP_HEADERS.has(lowerKey)) headers[lowerKey] = value;
   }
   delete headers['content-encoding'];
   delete headers['content-length'];
   return headers;
 }
 
-/**
- * Build the upstream URL for a forwarded request.
- *
- * Source paths we care about:
- *   /v1/messages                       (Anthropic Messages)
- *   /v1/messages/count_tokens          (Anthropic count-tokens — handled locally
- *                                       before we get here, but we still guard)
- *
- * For openai-chat providers, /v1/messages is rewritten to /chat/completions.
- *
- * Path-prefix handling: the upstream base URL may already include a /v1 prefix
- * (e.g. https://ollama.com/v1). To avoid producing /v1/v1/... when the source
- * path also starts with /v1, we strip the leading /v1 from the source path
- * before concatenating it with the base.
- */
 function buildTargetUrl(provider, incomingUrl) {
   const source = new URL(incomingUrl, 'http://localhost');
   const target = new URL(provider.upstreamBaseUrl.href);
   const basePath = target.pathname.replace(/\/$/, '');
-
   let sourcePath = source.pathname;
 
   if (provider.format === 'openai-chat') {
     if (sourcePath === '/v1/messages' || sourcePath.endsWith('/v1/messages')) {
       sourcePath = '/chat/completions';
-    } else if (
-      sourcePath === '/v1/messages/count_tokens'
-      || sourcePath.endsWith('/v1/messages/count_tokens')
-    ) {
-      // Already handled locally; if we ever reach here, route to a sensible
-      // endpoint instead of /v1/v1/messages/count_tokens.
+    } else if (sourcePath === '/v1/messages/count_tokens' || sourcePath.endsWith('/v1/messages/count_tokens')) {
       sourcePath = '/chat/completions';
     } else if (basePath.endsWith('/v1') && sourcePath.startsWith('/v1/')) {
-      // Avoid producing /v1/v1/... for any other /v1/* call when the base URL
-      // is already /v1.
       sourcePath = sourcePath.slice(3);
     }
   } else if (basePath.endsWith('/v1') && sourcePath.startsWith('/v1/')) {
-    // Same guard for Anthropic-compatible upstreams whose base URL ends in /v1.
     sourcePath = sourcePath.slice(3);
   }
 
@@ -1844,6 +1284,9 @@ function buildTargetUrl(provider, incomingUrl) {
   return target;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Stream helpers
+// ─────────────────────────────────────────────────────────────────────────────
 async function readRequestBody(req, limitBytes) {
   const chunks = [];
   let totalLength = 0;
@@ -1874,6 +1317,9 @@ function sendJson(res, statusCode, payload) {
   res.end(body);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Env parsing
+// ─────────────────────────────────────────────────────────────────────────────
 function mergeAdvancedEnv(env) {
   return { ...parseAdvancedEnv(env.ADVANCED_ENV), ...env };
 }
@@ -1886,14 +1332,12 @@ function parseAdvancedEnv(raw) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('ADVANCED_ENV must be a JSON object');
   }
-  return Object.fromEntries(
-    Object.entries(parsed).map(([key, value]) => {
-      if (!key || value === null || typeof value === 'object') {
-        throw new Error('ADVANCED_ENV keys must be non-empty and values must be strings, numbers, or booleans');
-      }
-      return [key, String(value)];
-    }),
-  );
+  return Object.fromEntries(Object.entries(parsed).map(([key, value]) => {
+    if (!key || value === null || typeof value === 'object') {
+      throw new Error('ADVANCED_ENV keys must be non-empty and values must be strings, numbers, or booleans');
+    }
+    return [key, String(value)];
+  }));
 }
 
 function parseStringMap(raw, name) {
@@ -1902,35 +1346,16 @@ function parseStringMap(raw, name) {
   if (!trimmed) return {};
 
   if (trimmed.startsWith('{')) {
-    // Tolerate dotenv multi-line JSON: collapse newlines, drop trailing commas.
-    trimmed = trimmed
-      .replace(/\r?\n/g, ' ')
-      .replace(/\s+/g, ' ')
-      .replace(/,\s*}/g, '}');
-    try {
-      const parsed = JSON.parse(trimmed);
-      return normalizeStringMap(parsed, name);
-    } catch (error) {
-      console.error(`\n[claude-universal-custom-proxy] ERROR: ${name} is not valid JSON.`);
-      console.error(`  Raw value (first 300 chars): ${String(raw).slice(0, 300)}`);
-      console.error(`  JSON error: ${error.message}\n`);
-      throw new Error(`${name} contains invalid JSON`);
-    }
+    trimmed = trimmed.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').replace(/,\s*}/g, '}');
+    try { return normalizeStringMap(JSON.parse(trimmed), name); }
+    catch { throw new Error(`${name} contains invalid JSON`); }
   }
 
-  const parsed = Object.fromEntries(
-    trimmed.split(',').map((entry) => {
-      const separatorIndex = entry.indexOf('=');
-      if (separatorIndex === -1) {
-        throw new Error(`${name} entries must use from=to format`);
-      }
-      return [
-        entry.slice(0, separatorIndex).trim(),
-        entry.slice(separatorIndex + 1).trim(),
-      ];
-    }),
-  );
-
+  const parsed = Object.fromEntries(trimmed.split(',').map((entry) => {
+    const i = entry.indexOf('=');
+    if (i === -1) throw new Error(`${name} entries must use from=to format`);
+    return [entry.slice(0, i).trim(), entry.slice(i + 1).trim()];
+  }));
   return normalizeStringMap(parsed, name);
 }
 
@@ -1938,75 +1363,80 @@ function normalizeStringMap(value, name) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${name} must be a JSON object or from=to list`);
   }
-  return Object.fromEntries(
-    Object.entries(value).map(([from, to]) => {
-      if (!from || typeof to !== 'string' || !to) {
-        throw new Error(`${name} keys and values must be non-empty strings`);
-      }
-      return [from, to];
-    }),
-  );
+  return Object.fromEntries(Object.entries(value).map(([from, to]) => {
+    if (!from || typeof to !== 'string' || !to) {
+      throw new Error(`${name} keys and values must be non-empty strings`);
+    }
+    return [from, to];
+  }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Config normalization & provider resolution
+// ─────────────────────────────────────────────────────────────────────────────
+const DEFAULT_PROVIDER_PRIORITY = [
+  'ollama', 'huggingface', 'nvidia',
+  'openai', 'gemini', 'qwen',
+  'glm', 'moonshot', 'xiaomi',
+  'anthropic', 'deepseek',
+];
+
+function pickFallbackDefaultProvider(providers, requested) {
+  if (providers[requested]?.upstreamApiKey) return requested;
+  for (const name of DEFAULT_PROVIDER_PRIORITY) {
+    if (providers[name]?.upstreamApiKey) return name;
+  }
+  return requested;
 }
 
 function normalizeConfig(config) {
   const providers = normalizeProviders(config);
-  const providerNames = Object.keys(providers);
-  const defaultProvider = normalizeProviderName(
-    config.defaultProvider || (providers.deepseek ? 'deepseek' : providerNames[0]),
+  const requested = normalizeProviderName(
+    config.defaultProvider || (providers.ollama ? 'ollama' : Object.keys(providers)[0]),
   );
-
-  if (!providers[defaultProvider]) {
-    throw new Error(`No upstream provider configured for ${defaultProvider}`);
+  if (!providers[requested]) throw new Error(`No upstream provider configured for ${requested}`);
+  const defaultProvider = pickFallbackDefaultProvider(providers, requested);
+  if (defaultProvider !== requested) {
+    console.error(`[${SERVER_NAME}] DEFAULT_PROVIDER=${requested} has no API key; falling back to ${defaultProvider}`);
   }
-
   return {
     ...config,
     baseUrl: config.baseUrl || `http://127.0.0.1:${config.port || 8787}`,
     defaultProvider,
     providers,
     modelMap: config.modelMap || DEFAULT_MODEL_MAP,
-    modelAliases: config.modelAliases || config.reverseModelMap || DEFAULT_MODEL_ALIASES,
+    modelAliases: config.modelAliases || DEFAULT_MODEL_ALIASES,
     modelRoutes: normalizeProviderRoutes(config.modelRoutes || DEFAULT_MODEL_ROUTES),
     claudeFamilyFallback: config.claudeFamilyFallback || DEFAULT_CLAUDE_FAMILY_FALLBACK,
-    rewriteResponses: config.rewriteResponses ?? false,
+    visibleModels: config.visibleModels || DEFAULT_VISIBLE_MODELS,
+    hiddenAliases: config.hiddenAliases || DEFAULT_HIDDEN_ALIASES,
+    rewriteResponses: config.rewriteResponses ?? true,
     requestBodyLimitBytes: config.requestBodyLimitBytes || DEFAULT_REQUEST_BODY_LIMIT_BYTES,
-    legacyClaudeAliases: config.legacyClaudeAliases || LEGACY_CLAUDE_ALIASES,
   };
 }
 
 function normalizeProviders(config) {
   if (config.providers) {
-    return Object.fromEntries(
-      Object.entries(config.providers).map(([name, provider]) => [
-        normalizeProviderName(name),
-        { ...normalizeProvider(provider), name: normalizeProviderName(name) },
-      ]),
-    );
+    return Object.fromEntries(Object.entries(config.providers).map(([name, provider]) => [
+      normalizeProviderName(name),
+      { ...normalizeProvider(provider), name: normalizeProviderName(name) },
+    ]));
   }
-
   if (config.upstreamBaseUrl) {
     return {
       deepseek: {
-        ...normalizeProvider({
-          upstreamBaseUrl: config.upstreamBaseUrl,
-          upstreamApiKey: config.upstreamApiKey || '',
-        }),
+        ...normalizeProvider({ upstreamBaseUrl: config.upstreamBaseUrl, upstreamApiKey: config.upstreamApiKey || '' }),
         name: 'deepseek',
       },
     };
   }
-
   throw new Error('At least one upstream provider must be configured');
 }
 
 function normalizeProvider(provider) {
-  if (!provider?.upstreamBaseUrl) {
-    throw new Error('Provider upstreamBaseUrl is required');
-  }
+  if (!provider?.upstreamBaseUrl) throw new Error('Provider upstreamBaseUrl is required');
   return {
-    upstreamBaseUrl: provider.upstreamBaseUrl instanceof URL
-      ? provider.upstreamBaseUrl
-      : new URL(provider.upstreamBaseUrl),
+    upstreamBaseUrl: provider.upstreamBaseUrl instanceof URL ? provider.upstreamBaseUrl : new URL(provider.upstreamBaseUrl),
     upstreamApiKey: provider.upstreamApiKey || '',
     format: normalizeProviderFormat(provider.format || 'anthropic'),
     authScheme: normalizeAuthScheme(provider.authScheme || 'bearer'),
@@ -2016,76 +1446,63 @@ function normalizeProvider(provider) {
 }
 
 function normalizeProviderFormat(format) {
-  const normalized = String(format || '').trim().toLowerCase();
-  if (normalized === 'anthropic' || normalized === 'openai-chat') return normalized;
+  const f = String(format || '').trim().toLowerCase();
+  if (f === 'anthropic' || f === 'openai-chat') return f;
   throw new Error(`Unsupported provider format: ${format}`);
 }
 
 function normalizeAuthScheme(authScheme) {
-  const normalized = String(authScheme || '').trim().toLowerCase();
-  if (normalized === 'bearer' || normalized === 'x-api-key') return normalized;
+  const s = String(authScheme || '').trim().toLowerCase();
+  if (s === 'bearer' || s === 'x-api-key') return s;
   throw new Error(`Unsupported auth scheme: ${authScheme}`);
 }
 
 function normalizeProviderRoutes(modelRoutes) {
   return Object.fromEntries(
-    Object.entries(modelRoutes).map(([model, provider]) => [
-      model,
-      normalizeProviderName(provider),
-    ]),
+    Object.entries(modelRoutes).map(([model, provider]) => [model, normalizeProviderName(provider)]),
   );
 }
 
 function normalizeProviderName(provider) {
-  const normalized = String(provider || '').trim().toLowerCase();
-  if (normalized === 'kimi') return 'moonshot';
-  if (normalized === 'hf') return 'huggingface';
-  if (normalized === 'nim' || normalized === 'nemo' || normalized === 'nvapi') return 'nvidia';
-  return normalized;
+  const n = String(provider || '').trim().toLowerCase();
+  if (n === 'kimi') return 'moonshot';
+  if (n === 'hf') return 'huggingface';
+  if (n === 'nim' || n === 'nemo' || n === 'nvapi') return 'nvidia';
+  return n;
 }
 
 /**
- * Decide which provider handles a given (upstreamModel, requestAlias).
- *
- * Precedence:
- *   1. modelRoutes[requestAlias] — alias-specific override (lets
- *      claude-glm-4.6 → Z.AI and claude-ollama-glm-4.6 → Ollama coexist).
- *   2. modelRoutes[upstreamModel] — upstream-id route.
- *   3. config.defaultProvider.
+ * Pick the provider that handles a (upstreamModel, requestAlias) pair.
+ * Alias takes precedence over upstream id, so e.g. "claude-opus-ol-ds-v3.1"
+ * routes to ollama even though "deepseek-v3.1:671b-cloud" isn't in the route
+ * table.
  */
 function resolveProvider(upstreamModel, requestAlias, config) {
-  const providerName = (requestAlias && config.modelRoutes[requestAlias])
+  const name = (requestAlias && config.modelRoutes[requestAlias])
     || (upstreamModel && config.modelRoutes[upstreamModel])
     || config.defaultProvider;
-
-  const provider = config.providers[providerName];
-  if (!provider) {
-    throw new Error(`No upstream provider configured for ${providerName}`);
-  }
+  const provider = config.providers[name];
+  if (!provider) throw new Error(`No upstream provider configured for ${name}`);
   return provider;
 }
 
 function getProviderStatus(providers) {
-  return Object.fromEntries(
-    Object.entries(providers).map(([name, provider]) => [
-      name,
-      {
-        upstreamBaseUrl: redactUrl(provider.upstreamBaseUrl),
-        hasApiKey: Boolean(provider.upstreamApiKey),
-        format: provider.format,
-        authScheme: provider.authScheme,
-      },
-    ]),
-  );
+  return Object.fromEntries(Object.entries(providers).map(([name, p]) => [name, {
+    upstreamBaseUrl: redactUrl(p.upstreamBaseUrl),
+    hasApiKey: Boolean(p.upstreamApiKey),
+    format: p.format,
+    authScheme: p.authScheme,
+  }]));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Misc helpers
+// ─────────────────────────────────────────────────────────────────────────────
 function parseInteger(raw, fallback) {
   if (raw === undefined || raw === null || raw === '') return fallback;
-  const parsed = Number.parseInt(String(raw), 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`Invalid positive integer: ${raw}`);
-  }
-  return parsed;
+  const v = Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(v) || v <= 0) throw new Error(`Invalid positive integer: ${raw}`);
+  return v;
 }
 
 function parseBoolean(raw, fallback) {
@@ -2109,16 +1526,15 @@ function isTextualContentType(contentType) {
 }
 
 function redactUrl(url) {
-  const redacted = new URL(url.href);
-  redacted.username = '';
-  redacted.password = '';
-  return redacted.href;
+  const u = new URL(url.href);
+  u.username = '';
+  u.password = '';
+  return u.href;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CLI entry
+//  CLI entry
 // ─────────────────────────────────────────────────────────────────────────────
-
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 
 if (isMain) {
@@ -2128,40 +1544,38 @@ if (isMain) {
 
     server.on('error', (error) => {
       if (error.code === 'EADDRINUSE') {
-        console.error(`[claude-universal-custom-proxy] port ${config.port} is already in use`);
+        console.error(`[${SERVER_NAME}] port ${config.port} is already in use`);
         process.exit(0);
       }
-      console.error(`[claude-universal-custom-proxy] failed: ${error.message}`);
+      console.error(`[${SERVER_NAME}] failed: ${error.message}`);
       process.exit(1);
     });
 
     server.listen(config.port, '127.0.0.1', () => {
       console.log('========================================');
-      console.log(' CLAUDE MODEL PROXY');
+      console.log(`  CLAUDE UNIVERSAL CUSTOM PROXY v${SERVER_VERSION}`);
       console.log('========================================');
-      console.log(`Listening:        http://127.0.0.1:${config.port}`);
-      console.log(`Gateway base URL: ${config.baseUrl}`);
-      console.log(`Default provider: ${config.defaultProvider}`);
+      console.log(`Listening:         http://127.0.0.1:${config.port}`);
+      console.log(`Gateway base URL:  ${config.baseUrl}`);
       console.log(`Rewrite responses: ${config.rewriteResponses}`);
-      console.log(`Debug logging:    ${DEBUG ? 'on' : 'off'} (DEBUG_PROXY=true to enable)`);
+      console.log(`Debug logging:     ${DEBUG ? 'on' : 'off'} (DEBUG_PROXY=true to enable)`);
       console.log('----------------------------------------');
       console.log(' Providers (✔ = API key set):');
-      for (const [name, provider] of Object.entries(config.providers)) {
-        const flag = provider.upstreamApiKey ? '✔' : ' ';
-        console.log(`  ${flag} ${name.padEnd(10)} ${provider.upstreamBaseUrl.href}  [${provider.format}]`);
+      for (const [name, p] of Object.entries(config.providers)) {
+        console.log(`  ${p.upstreamApiKey ? '✔' : ' '} ${name.padEnd(12)} ${p.upstreamBaseUrl.href}  [${p.format}]`);
       }
       console.log('----------------------------------------');
-      console.log(' Claude family fallback (used when ANTHROPIC_API_KEY is empty):');
+      console.log(' Family fallback (used when ANTHROPIC_API_KEY is empty):');
       for (const [family, alias] of Object.entries(config.claudeFamilyFallback)) {
-        const upstream = config.modelMap[alias] || alias;
-        console.log(`  ${family.padEnd(8)} → ${alias}  →  ${upstream}`);
+        console.log(`  ${family.padEnd(8)} → ${alias}  →  ${config.modelMap[alias] || '(unknown)'}`);
       }
       console.log('----------------------------------------');
-      console.log(` Models exposed at /v1/models: ${Object.keys(config.modelMap).length}`);
+      console.log(` Visible /v1/models entries: ${(config.visibleModels || []).length}`);
+      console.log(` Total aliases (incl. hidden): ${Object.keys(config.modelMap).length}`);
       console.log('========================================');
     });
   } catch (error) {
-    console.error(`[claude-universal-custom-proxy] startup failed: ${error.message}`);
+    console.error(`[${SERVER_NAME}] startup failed: ${error.message}`);
     process.exit(1);
   }
 }
