@@ -54,19 +54,19 @@ to the human who reviewed and approved the change.
 
 ```sh
 npm install
-npm test                    # 48 cases
+npm test                    # mechanics + e2e routing (no network, no credits)
 node --check proxy.mjs      # syntax check
-node --check server/index.mjs
-node --check test/proxy.test.mjs
-npm run build:mcpb          # produces dist/claude-universal-custom-proxy-<version>.mcpb
 ```
 
-Optional smoke test against the running proxy:
+Optional smoke checks against the running proxy:
 
 ```sh
 OLLAMA_API_KEY=<key> node proxy.mjs &
 curl http://127.0.0.1:8787/healthz
 curl http://127.0.0.1:8787/v1/models
+
+# Send one tiny real prompt per free-tier provider (uses your keys):
+node scripts/real-upstream-smoke.mjs
 ```
 
 ## Adding a new provider
@@ -74,35 +74,31 @@ curl http://127.0.0.1:8787/v1/models
 1. Add the provider entry to `loadConfig` in `proxy.mjs` with `upstreamBaseUrl`,
    `upstreamApiKey`, `format` (`anthropic` or `openai-chat`), `authScheme`
    (`bearer` or `x-api-key`), and optionally `maxTokensField`.
-2. Add Claude aliases to `DEFAULT_MODEL_MAP`, reverse entries to
-   `DEFAULT_MODEL_ALIASES`, and route entries to `DEFAULT_MODEL_ROUTES`.
+2. Add its short code to `PROVIDER_BRAND_PREFIX`/`PROVIDER_CODE` in
+   `scripts/generate-registry.mjs` if it is a picker-sensitive provider.
 3. Add a route + streaming test in `test/proxy.test.mjs` modelled on the
-   HuggingFace tests.
-4. Update `manifest.json` user_config if the install dialog should expose it,
-   `.env.example` for documentation, README's provider table, and
-   CHANGELOG.md.
+   existing Ollama tests.
+4. Update `.env.example`, the README provider table, and CHANGELOG.md.
 
-## Adding new models
+## Adding / refreshing models
 
-The simplest path is to override at runtime via `MODEL_MAP`, `MODEL_ALIASES`,
-and `MODEL_ROUTES` (or the MCPB **Optional Advanced Settings JSON** field).
-For permanent inclusion in `DEFAULT_MODEL_MAP`, open a PR with:
+The catalog (`PROVIDER_MODELS` in `proxy.mjs`) is generated from live provider
+data, not hand-maintained:
 
-- Verification that the upstream model id is currently live (paste output of
-  the provider's models API).
-- A short rationale (latency, cost, capability tier).
+```sh
+npm run models:probe                  # writes scripts/.model-probe.json
+node scripts/generate-registry.mjs    # emit the PROVIDER_MODELS array
+```
+
+Paste the regenerated array into `proxy.mjs`. Only include models the provider
+actually serves on its free tier (the probe filters subscription-gated and
+non-chat models automatically). For a one-off override at runtime, use
+`MODEL_MAP`, `MODEL_ALIASES`, and `MODEL_ROUTES` env vars.
 
 ## Versioning
 
-Semantic Versioning. Each released change bumps:
-
-- `package.json` `version`
-- `manifest.json` top-level `version` **and**
-  `_meta.com.microsoft.windows.static_responses.initialize.serverInfo.version`
-- `server/index.mjs` `SERVER_VERSION`
-
-The "manifest exposes provider keys plus Claude family fallback overrides"
-test enforces these are in lockstep.
+Semantic Versioning. Each released change bumps `package.json` `version` and the
+`SERVER_VERSION` constant in `proxy.mjs`.
 
 ## Pull request checklist
 

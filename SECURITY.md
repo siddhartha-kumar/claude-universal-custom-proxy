@@ -46,7 +46,7 @@ In-scope threats:
   `x-api-key` rewriting.
 - Path traversal or injection in `/v1/models/{id}` lookups.
 - Resource exhaustion via oversized request bodies or SSE streams.
-- Supply-chain risks in `archiver` / `dotenv` (the only runtime dependencies).
+- Supply-chain risk in `dotenv` (the only runtime dependency).
 
 Out of scope:
 
@@ -59,7 +59,5 @@ Out of scope:
 
 - Every commit on `main` and `dev` is SSH-signed by the maintainer's
   ED25519 key.
-- The MCPB bundle is reproducible: `npm run build:mcpb` against a clean
-  checkout of a tagged commit produces a byte-identical zip.
-- A SHA-256 checksum of each released `.mcpb` is published in
-  [CHANGELOG.md](CHANGELOG.md).
+- The proxy is a single dependency-light Node.js file (`proxy.mjs`); review the
+  diff of any tagged release directly.

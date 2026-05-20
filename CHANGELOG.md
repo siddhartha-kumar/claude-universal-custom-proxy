@@ -5,6 +5,124 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] — 2026-05-20
+
+### Changed (breaking)
+
+- **Model catalog rebuilt from live, verified data.** Every model is now sourced
+  by querying each provider's own `/v1/models` endpoint and probing a 1-token
+  chat completion per model (`scripts/probe-models.mjs`,
+  `scripts/generate-registry.mjs`). Speculative / unverifiable model ids from
+  earlier versions were removed. The catalog is **193 aliases**:
+  - **Ollama Cloud — 25** free models (subscription-gated ids that return
+    HTTP 403, e.g. `deepseek-v3.2`, `glm-5.1`, `kimi-k2.6`, were excluded).
+  - **HuggingFace Inference Router — 125** served chat models. The Router is
+    **credit-metered**: calls succeed until your monthly free credit is spent,
+    then return HTTP 402 until it resets (or you add billing / HF PRO).
+  - **NVIDIA NIM — 38** free chat models (embeddings, rerankers, safety guards,
+    OCR/parse, and unreliable/cold endpoints excluded).
+  - **5** native Anthropic Claude family models.
+- **Single brand alias per model.** Third-party models are advertised as
+  `ollama-<name>`, `hf-<name>`, `nim-<name>` (no `claude-` prefix), so Claude
+  Desktop's Cowork picker shows them and they're findable by typing the model
+  name. The tiered `claude-<tier>-<prov>-<short>` and legacy
+  `claude-<prov>-<brand>` alias schemes were removed.
+- **`DEFAULT_PROVIDER` defaults to `ollama`**; family fallback defaults are
+  `haiku → ollama-gpt-oss-20b`, `sonnet → ollama-qwen3-coder-480b`,
+  `opus → ollama-gpt-oss-120b`.
+
+### Removed
+
+- **All MCPB / Claude Desktop extension packaging.** `manifest.json`,
+  `scripts/build-mcpb.mjs`, `server/index.mjs` (MCP stdio wrapper), the
+  LaunchAgent installer scripts, the `archiver` dependency, and the
+  `build:mcpb` / `launch-agent:*` npm scripts are gone. The proxy now runs as a
+  plain Node.js HTTP server — `npm start` (or `./start.sh`) is the only entry
+  point.
+
+### Added
+
+- `scripts/probe-models.mjs`, `scripts/discover-models.mjs`,
+  `scripts/generate-registry.mjs` — maintenance tooling to refresh the catalog
+  from live provider data (`npm run models:probe`, `npm run models:discover`).
+- A professional **Disclaimer** section in the README (educational/learning
+  purpose, no infringement, official Anthropic third-party-integration docs
+  followed, third-party access via official APIs and your own keys under each
+  provider's Terms of Service).
+
+## [0.9.0] — 2026-05-19
+
+### Fixed
+
+- **The 401 "Your api key: \*\*\*\*ummy is invalid" error** — every non-Anthropic
+  alias used to fall through the routing table to `DEFAULT_PROVIDER='deepseek'`
+  (which has no API key in most installs), so the gateway's placeholder
+  `Bearer dummy-…` header got forwarded to the upstream verbatim. `resolveProvider`
+  now looks up `modelRoutes` by the **request alias** first (the only key the
+  route table actually carries), falling back to the upstream id, then to
+  `defaultProvider`.
+- **`defaultProvider` auto-fallback at startup** — if the configured (or
+  hardcoded) default has no API key, the proxy now picks the first provider
+  that does, in priority order: `ollama → huggingface → nvidia → openai →
+  gemini → qwen → glm → moonshot → xiaomi → anthropic → deepseek`. Prints a
+  warning when this kicks in.
+- **DeepSeek (and Llama / Qwen / Phi / Mistral / etc.) visibility in Claude
+  Desktop's picker** — the picker hides `claude-*` ids containing a foundation
+  model brand keyword. Every model from Ollama Cloud / HuggingFace Router /
+  NVIDIA NIM now has a brand alias (`ollama-deepseek-v3.1`, `nim-deepseek-r1`,
+  `hf-deepseek-r1`, …) that bypasses the filter, so typing "deepseek" in the
+  picker now finds all 17 DeepSeek variants across the three providers.
+
+### Added
+
+- **Single source of truth model registry** — `PROVIDER_MODELS` + 
+  `ANTHROPIC_COMPAT_MODELS` + `OPENAI_COMPAT_MODELS` + `NATIVE_ANTHROPIC_MODELS`.
+  `DEFAULT_MODEL_MAP` / `DEFAULT_MODEL_ROUTES` / `DEFAULT_MODEL_ALIASES` /
+  `DEFAULT_VISIBLE_MODELS` / `DEFAULT_HIDDEN_ALIASES` all derive from it at
+  module load. Adding a new model means editing one place.
+- **Three-alias scheme** for every picker-sensitive provider model:
+  1. Brand alias (visible): `ollama-deepseek-v3.1`, `nim-deepseek-r1`,
+     `hf-deepseek-r1` — survives the picker brand filter.
+  2. Tiered alias (visible): `claude-opus-ol-ds-v3.1`,
+     `claude-opus-nv-ds-r1`, `claude-opus-hr-ds-r1` — carries Claude's
+     haiku/sonnet/opus tier signal via 2-letter codes that bypass the filter.
+  3. Legacy `claude-<prov>-<brand>` alias (hidden): routable for back-compat
+     with existing `.env` configs and Claude Code CLI integrations, but not
+     advertised in `/v1/models` since the picker would drop it anyway.
+- **Claude family fallback resolver** (re-added) — dated names like
+  `claude-haiku-4-5-20251001` and bare `claude-haiku-4-5` re-route to
+  `claudeFamilyFallback.haiku` (default: `ollama-qwen3-coder-next`) when
+  `ANTHROPIC_API_KEY` is empty.
+- **End-to-end mock test** (`test/e2e-routing.test.mjs`) — spins up 11 mock
+  upstream servers, sends Claude Desktop-style `Bearer dummy-…` requests for
+  every alias in the registry, asserts the right provider received it with
+  the real key substituted. **276 aliases verified.**
+- **Real-upstream smoke script** (`scripts/real-upstream-smoke.mjs`, not run
+  by `npm test`) — sends one tiny prompt per free-tier provider to confirm
+  end-to-end production behavior.
+
+### Changed (breaking — but legacy aliases keep routing)
+
+- `DEFAULT_PROVIDER` now defaults to `ollama` (was `deepseek`), reflecting
+  the most common setup.
+- `REWRITE_RESPONSES` now defaults to `true`. Claude Desktop's gateway
+  prefers seeing the requested alias in `response.model` so it doesn't lose
+  messages when the upstream id isn't in its catalog.
+- Native `claude-*` family models now total 5 (`claude-haiku-4-5`,
+  `claude-sonnet-4-5`, `claude-sonnet-4-6`, `claude-opus-4-1`,
+  `claude-opus-4-7`). The generic `claude-haiku` / `claude-sonnet` /
+  `claude-opus` aliases were removed — they pointed at `deepseek` (which has
+  no key in most installs) and were a 401 trap.
+- `proxy.mjs` was reformatted from one-line dense code to multi-line with
+  section dividers and inline documentation.
+
+### Migration
+
+Existing `.env` configs and Claude Code CLI integrations using
+`claude-ollama-*` / `claude-hf-*` / `claude-nim-*` aliases keep working — they
+route to the same upstream as the new brand aliases. They're just hidden from
+`/v1/models` now because Claude Desktop's picker filters them out anyway.
+
 ## [0.6.0] — 2026-05-19
 
 ### Fixed (actually, this time)
