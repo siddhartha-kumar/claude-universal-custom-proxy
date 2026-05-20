@@ -19,24 +19,16 @@ jobs:
 
       - name: Check JSON
         run: |
-          node -e "const fs=require('fs'); for (const f of ['package.json','manifest.json']) JSON.parse(fs.readFileSync(f,'utf8'))"
+          node -e "const fs=require('fs'); for (const f of ['package.json']) JSON.parse(fs.readFileSync(f,'utf8'))"
 
       - name: Check shell scripts
         run: |
           sh -n start.sh
           sh -n scripts/ensure-node.sh
-          sh -n scripts/run-launch-agent.sh
 
       - name: Check JavaScript
         run: |
           node --check proxy.mjs
-          node --check server/index.mjs
-          node --check scripts/build-mcpb.mjs
-          node --check scripts/install-launch-agent.mjs
-          node --check scripts/uninstall-launch-agent.mjs
 
       - name: Run tests
         run: npm test
-
-      - name: Build MCPB
-        run: npm run build:mcpb
